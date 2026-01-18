@@ -1,11 +1,16 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { defineJob } from "./registry";
 
-export const SpawnClaudeSessionJob = defineJob(
-  "FixFileJob",
+interface SpawnClaudeSessionArgs {
+  prompt: string;
+  cwd?: string;
+}
+
+export const SpawnClaudeSessionJob = defineJob<SpawnClaudeSessionArgs>(
+  "SpawnClaudeSessionJob",
   async (args) => {
     for await (const message of query({
-      prompt: "what's your current working directory?",
+      prompt: args.prompt,
       options: {
         allowedTools: [
           "Read",
@@ -14,7 +19,7 @@ export const SpawnClaudeSessionJob = defineJob(
           "Bash",
         ],
         permissionMode: "acceptEdits",
-        cwd: "/home/kevin/Projects/stuff/borked/"
+        cwd: args.cwd || process.cwd()
       }
     })) {
       if (message.type === "assistant" && message.message?.content) {

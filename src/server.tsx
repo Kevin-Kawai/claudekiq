@@ -198,6 +198,10 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         }
 
         async function addJob(jobClass) {
+          if (jobClass === 'SpawnClaudeSessionJob') {
+            openClaudePromptModal();
+            return;
+          }
           try {
             await fetch('/api/jobs', {
               method: 'POST',
@@ -208,6 +212,46 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             fetchJobs();
           } catch (e) {
             console.error('Failed to add job:', e);
+          }
+        }
+
+        function openClaudePromptModal() {
+          document.getElementById('claude-prompt-modal').classList.add('active');
+        }
+
+        function closeClaudePromptModal() {
+          document.getElementById('claude-prompt-modal').classList.remove('active');
+          document.getElementById('claude-prompt').value = '';
+          document.getElementById('claude-cwd').value = '';
+        }
+
+        async function submitClaudeSession() {
+          var prompt = document.getElementById('claude-prompt').value;
+          if (!prompt.trim()) {
+            alert('Please enter a prompt');
+            return;
+          }
+          var cwd = document.getElementById('claude-cwd').value;
+          var body = { jobClass: 'SpawnClaudeSessionJob', prompt: prompt };
+          if (cwd.trim()) {
+            body.cwd = cwd;
+          }
+          try {
+            var res = await fetch('/api/jobs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            closeClaudePromptModal();
+            fetchStats();
+            fetchJobs();
+          } catch (e) {
+            console.error('Failed to spawn Claude session:', e);
           }
         }
 
@@ -387,12 +431,33 @@ const ScheduleModal: FC = () => (
   </div>
 );
 
+const ClaudePromptModal: FC = () => (
+  <div id="claude-prompt-modal" class="modal" onclick="if(event.target===this)closeClaudePromptModal()">
+    <div class="modal-content">
+      <h3>Spawn Claude Session</h3>
+      <div class="form-group">
+        <label>Prompt</label>
+        <textarea id="claude-prompt" rows={4} placeholder="Enter your prompt for Claude..." style="width:100%;resize:vertical;"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Working Directory (optional)</label>
+        <input type="text" id="claude-cwd" placeholder="/path/to/directory" />
+      </div>
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" onclick="closeClaudePromptModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitClaudeSession()">Spawn Session</button>
+      </div>
+    </div>
+  </div>
+);
+
 const Dashboard: FC = () => (
   <Layout>
     <h1>Queue Dashboard</h1>
     <QueueStats />
     <JobList />
     <ScheduleModal />
+    <ClaudePromptModal />
   </Layout>
 );
 
@@ -496,7 +561,17 @@ app.post("/api/jobs", async (c) => {
       );
       break;
     case "SpawnClaudeSessionJob":
-      job = await SpawnClaudeSessionJob.performLater({})
+      if (!body.prompt) {
+        return c.json({ error: "SpawnClaudeSessionJob requires 'prompt' in request body" }, 400);
+      }
+      job = await SpawnClaudeSessionJob.performLater(
+        {
+          prompt: body.prompt,
+          cwd: body.cwd,
+        },
+        options
+      );
+      break;
     default:
       return c.json({ error: `Unknown job class: ${jobClass}` }, 400);
   }

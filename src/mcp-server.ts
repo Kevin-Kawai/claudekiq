@@ -29,6 +29,7 @@ import {
   SendWelcomeEmailJob,
   GenerateReportJob,
   ExportDataJob,
+  SpawnClaudeSessionJob,
 } from "./jobs";
 
 // Create the MCP server
@@ -50,6 +51,7 @@ server.registerTool(
       SendWelcomeEmailJob: "Send a welcome email to a new user",
       GenerateReportJob: "Generate a report (daily/weekly/monthly) for a user",
       ExportDataJob: "Export data from a table in CSV, JSON, or PDF format",
+      SpawnClaudeSessionJob: "Spawn a Claude session with a given prompt and optional working directory",
     };
 
     const result = jobClasses.map((name) => ({
@@ -80,6 +82,7 @@ server.registerTool(
           "SendWelcomeEmailJob",
           "GenerateReportJob",
           "ExportDataJob",
+          "SpawnClaudeSessionJob",
         ])
         .describe("The job class to enqueue"),
       args: z
@@ -217,6 +220,27 @@ server.registerTool(
               format: args.format as "csv" | "json" | "pdf",
               tableName: String(args.tableName),
               filters: (args.filters as Record<string, unknown>) || undefined,
+            },
+            options
+          );
+          break;
+
+        case "SpawnClaudeSessionJob":
+          if (!args.prompt) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "Error: SpawnClaudeSessionJob requires 'prompt' argument",
+                },
+              ],
+              isError: true,
+            };
+          }
+          job = await SpawnClaudeSessionJob.performLater(
+            {
+              prompt: String(args.prompt),
+              cwd: args.cwd ? String(args.cwd) : undefined,
             },
             options
           );

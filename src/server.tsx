@@ -19,6 +19,7 @@ import {
   SendWelcomeEmailJob,
   GenerateReportJob,
   ExportDataJob,
+  SpawnClaudeSessionJob
 } from "./jobs";
 
 const app = new Hono();
@@ -324,6 +325,7 @@ const JobList: FC = () => (
         <button class="add-job-btn email" onclick="addJob('SendWelcomeEmailJob')">+ Welcome</button>
         <button class="add-job-btn report" onclick="addJob('GenerateReportJob')">+ Report</button>
         <button class="add-job-btn export" onclick="addJob('ExportDataJob')">+ Export</button>
+        <button class="add-job-btn export" onclick="addJob('SpawnClaudeSessionJob')">+ Spawn Claude Session</button>
         <button class="add-job-btn schedule" onclick="openScheduleModal()">+ Schedule</button>
       </div>
     </div>
@@ -358,6 +360,7 @@ const ScheduleModal: FC = () => (
           <option value="SendWelcomeEmailJob">Send Welcome Email</option>
           <option value="GenerateReportJob">Generate Report</option>
           <option value="ExportDataJob">Export Data</option>
+          <option value="SpawnClaudeSessionJob">Spawn Claude Session</option>
         </select>
       </div>
       <div class="form-group">
@@ -492,6 +495,8 @@ app.post("/api/jobs", async (c) => {
         options
       );
       break;
+    case "SpawnClaudeSessionJob":
+      job = await SpawnClaudeSessionJob.performLater({})
     default:
       return c.json({ error: `Unknown job class: ${jobClass}` }, 400);
   }

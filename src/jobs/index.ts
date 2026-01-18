@@ -21,3 +21,4 @@ export {
 // Add new job imports here
 export * from "./email.job";
 export * from "./report.job";
+export * from "./spawnClaudeSession.job"

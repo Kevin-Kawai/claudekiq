@@ -553,7 +553,11 @@ export async function getConversations(workspaceId?: number, limit = 50) {
  */
 export async function sendMessage(
   conversationId: number,
-  message: string
+  message: string,
+  options?: {
+    scheduledFor?: Date;
+    cronExpression?: string;
+  }
 ): Promise<Job> {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -561,6 +565,17 @@ export async function sendMessage(
 
   if (!conversation) {
     throw new Error(`Conversation ${conversationId} not found`);
+  }
+
+  // Determine status and scheduling
+  let status = "pending";
+  let nextRunAt: Date | null = null;
+
+  if (options?.cronExpression) {
+    status = "scheduled";
+    nextRunAt = getNextCronTime(options.cronExpression);
+  } else if (options?.scheduledFor) {
+    status = "scheduled";
   }
 
   // Create a job to process this message
@@ -574,6 +589,11 @@ export async function sendMessage(
       priority: 0,
       maxAttempts: 3,
       conversationId,
+      status,
+      scheduledFor: options?.scheduledFor,
+      isRecurring: !!options?.cronExpression,
+      cronExpression: options?.cronExpression,
+      nextRunAt,
     },
   });
 

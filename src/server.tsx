@@ -539,14 +539,38 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           document.getElementById('new-conversation-workspace').value = '';
           document.getElementById('new-conversation-worktree').checked = false;
           document.getElementById('new-conversation-branch').value = '';
+          document.getElementById('new-conversation-schedule').checked = false;
+          document.getElementById('new-conversation-schedule-type').value = 'once';
+          document.getElementById('new-conversation-scheduled-for').value = '';
+          document.getElementById('new-conversation-cron').value = '';
           document.getElementById('worktree-option').style.display = 'none';
           document.getElementById('branch-name-group').style.display = 'none';
           document.getElementById('cwd-group').style.display = 'block';
+          document.getElementById('conversation-schedule-type-group').style.display = 'none';
+          document.getElementById('conversation-scheduled-for-group').style.display = 'none';
+          document.getElementById('conversation-cron-group').style.display = 'none';
         }
 
         function onWorktreeChange() {
           var checked = document.getElementById('new-conversation-worktree').checked;
           document.getElementById('branch-name-group').style.display = checked ? 'block' : 'none';
+        }
+
+        function onConversationScheduleChange() {
+          var checked = document.getElementById('new-conversation-schedule').checked;
+          document.getElementById('conversation-schedule-type-group').style.display = checked ? 'block' : 'none';
+          if (checked) {
+            onConversationScheduleTypeChange();
+          } else {
+            document.getElementById('conversation-scheduled-for-group').style.display = 'none';
+            document.getElementById('conversation-cron-group').style.display = 'none';
+          }
+        }
+
+        function onConversationScheduleTypeChange() {
+          var type = document.getElementById('new-conversation-schedule-type').value;
+          document.getElementById('conversation-scheduled-for-group').style.display = type === 'once' ? 'block' : 'none';
+          document.getElementById('conversation-cron-group').style.display = type === 'recurring' ? 'block' : 'none';
         }
 
         function onWorkspaceChange() {
@@ -580,10 +604,25 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           var useWorktree = document.getElementById('new-conversation-worktree').checked;
           var branchName = document.getElementById('new-conversation-branch').value.trim();
           var cwd = document.getElementById('new-conversation-cwd').value.trim();
+          var isScheduled = document.getElementById('new-conversation-schedule').checked;
+          var scheduleType = document.getElementById('new-conversation-schedule-type').value;
+          var scheduledFor = document.getElementById('new-conversation-scheduled-for').value;
+          var cronExpression = document.getElementById('new-conversation-cron').value.trim();
 
           if (useWorktree && !branchName) {
             alert('Please enter a branch name for the worktree');
             return;
+          }
+
+          if (isScheduled) {
+            if (scheduleType === 'once' && !scheduledFor) {
+              alert('Please select a date/time for scheduling');
+              return;
+            }
+            if (scheduleType === 'recurring' && !cronExpression) {
+              alert('Please enter a cron expression');
+              return;
+            }
           }
 
           var body = { message: message };
@@ -595,6 +634,14 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             }
           } else if (cwd) {
             body.cwd = cwd;
+          }
+
+          if (isScheduled) {
+            if (scheduleType === 'once' && scheduledFor) {
+              body.scheduledFor = new Date(scheduledFor).toISOString();
+            } else if (scheduleType === 'recurring' && cronExpression) {
+              body.cronExpression = cronExpression;
+            }
           }
 
           try {
@@ -799,6 +846,28 @@ const NewConversationModal: FC = () => (
       <div class="form-group" id="cwd-group">
         <label>Working Directory (if no workspace selected)</label>
         <input type="text" id="new-conversation-cwd" placeholder="/path/to/directory" />
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="new-conversation-schedule" onchange="onConversationScheduleChange()" />
+          Schedule for later
+        </label>
+      </div>
+      <div class="form-group" id="conversation-schedule-type-group" style="display:none;">
+        <label>Schedule Type</label>
+        <select id="new-conversation-schedule-type" onchange="onConversationScheduleTypeChange()">
+          <option value="once">One-time</option>
+          <option value="recurring">Recurring (cron)</option>
+        </select>
+      </div>
+      <div class="form-group" id="conversation-scheduled-for-group" style="display:none;">
+        <label>Run At</label>
+        <input type="datetime-local" id="new-conversation-scheduled-for" />
+      </div>
+      <div class="form-group" id="conversation-cron-group" style="display:none;">
+        <label>Cron Expression</label>
+        <input type="text" id="new-conversation-cron" placeholder="0 9 * * *" />
+        <small>Examples: "0 9 * * *" (9 AM daily), "0 0 * * 0" (midnight Sunday)</small>
       </div>
       <div class="modal-buttons">
         <button class="btn btn-secondary" onclick="closeNewConversationModal()">Cancel</button>
@@ -1140,6 +1209,15 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         .processing-indicator { background: #fff3cd; color: #856404; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
         .processing-indicator .spinner { width: 16px; height: 16px; border: 2px solid #856404; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .follow-up-container { margin-top: 10px; }
+        .schedule-options { margin-top: 10px; padding: 12px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
+        .schedule-options .form-group { margin-bottom: 10px; }
+        .schedule-options .form-group:last-child { margin-bottom: 0; }
+        .schedule-options label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 500; color: #374151; }
+        .schedule-options input, .schedule-options select { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+        .schedule-options small { color: #6b7280; font-size: 11px; }
+        .checkbox-label { display: flex; align-items: center; cursor: pointer; font-size: 13px; color: #374151; }
+        .checkbox-label input { width: auto; margin-right: 8px; }
       `}</style>
     </head>
     <body>
@@ -1159,20 +1237,59 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
 
         async function fetchConversation() {
           try {
+            // Check if user is interacting with scheduling form - if so, skip full re-render
+            var activeEl = document.activeElement;
+            var isInteractingWithSchedule = activeEl && (
+              activeEl.id === 'msg-schedule-type' ||
+              activeEl.id === 'msg-scheduled-for' ||
+              activeEl.id === 'msg-cron' ||
+              activeEl.id === 'msg-schedule-checkbox'
+            );
+
             // Preserve input value before re-render
             var inputEl = document.getElementById('follow-up-input');
             var savedInput = inputEl ? inputEl.value : '';
-            var wasFocused = inputEl && document.activeElement === inputEl;
+            var wasFocused = inputEl && activeEl === inputEl;
 
             // Preserve scroll position
             var messagesEl = document.getElementById('messages');
             var savedScrollTop = messagesEl ? messagesEl.scrollTop : 0;
             var wasAtBottom = messagesEl ? (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50) : true;
 
+            // Preserve scheduling form state
+            var scheduleCheckbox = document.getElementById('msg-schedule-checkbox');
+            var savedScheduleChecked = scheduleCheckbox ? scheduleCheckbox.checked : false;
+            var scheduleTypeEl = document.getElementById('msg-schedule-type');
+            var savedScheduleType = scheduleTypeEl ? scheduleTypeEl.value : 'once';
+            var scheduledForEl = document.getElementById('msg-scheduled-for');
+            var savedScheduledFor = scheduledForEl ? scheduledForEl.value : '';
+            var cronEl = document.getElementById('msg-cron');
+            var savedCron = cronEl ? cronEl.value : '';
+
             const res = await fetch('/api/conversations/' + conversationId);
             if (!res.ok) throw new Error('Conversation not found');
             const conv = await res.json();
             var newMessageCount = conv.messages ? conv.messages.length : 0;
+
+            // If user is interacting with scheduling form, only update messages
+            if (isInteractingWithSchedule && messagesEl) {
+              // Just update messages without full re-render
+              var newMessagesHtml = '';
+              if (conv.messages && conv.messages.length > 0) {
+                conv.messages.forEach(function(msg) {
+                  newMessagesHtml += renderMessage(msg);
+                });
+              } else {
+                newMessagesHtml = '<div class="loading">No messages yet</div>';
+              }
+              messagesEl.innerHTML = newMessagesHtml;
+              if (newMessageCount > lastMessageCount) {
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }
+              lastMessageCount = newMessageCount;
+              return;
+            }
+
             renderConversation(conv);
 
             // Restore scroll position
@@ -1197,6 +1314,30 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
                 // Restore cursor to end
                 newInputEl.selectionStart = newInputEl.selectionEnd = savedInput.length;
               }
+            }
+
+            // Restore scheduling form state
+            var newScheduleCheckbox = document.getElementById('msg-schedule-checkbox');
+            if (newScheduleCheckbox && savedScheduleChecked) {
+              newScheduleCheckbox.checked = true;
+              document.getElementById('msg-schedule-options').style.display = 'block';
+            }
+            var newScheduleType = document.getElementById('msg-schedule-type');
+            if (newScheduleType && savedScheduleType) {
+              newScheduleType.value = savedScheduleType;
+              // Update visibility based on schedule type
+              if (savedScheduleType === 'recurring') {
+                document.getElementById('msg-scheduled-for-group').style.display = 'none';
+                document.getElementById('msg-cron-group').style.display = 'block';
+              }
+            }
+            var newScheduledFor = document.getElementById('msg-scheduled-for');
+            if (newScheduledFor && savedScheduledFor) {
+              newScheduledFor.value = savedScheduledFor;
+            }
+            var newCron = document.getElementById('msg-cron');
+            if (newCron && savedCron) {
+              newCron.value = savedCron;
             }
           } catch (e) {
             document.getElementById('conversation-details').innerHTML = '<div class="error">Error: ' + e.message + '</div>';
@@ -1238,9 +1379,17 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           html += '</div>';
 
           if (conv.status === 'active') {
+            html += '<div class="follow-up-container">';
             html += '<div class="follow-up">';
             html += '<textarea id="follow-up-input" placeholder="Send a follow-up message..." ' + (hasActiveJob ? 'disabled' : '') + '></textarea>';
             html += '<button id="send-btn" onclick="sendMessage()" ' + (hasActiveJob ? 'disabled' : '') + '>Send</button>';
+            html += '</div>';
+            html += '<div style="margin-top:8px;"><label class="checkbox-label"><input type="checkbox" id="msg-schedule-checkbox" onchange="onMsgScheduleChange()" ' + (hasActiveJob ? 'disabled' : '') + ' /> Schedule for later</label></div>';
+            html += '<div id="msg-schedule-options" class="schedule-options" style="display:none;">';
+            html += '<div class="form-group"><label>Schedule Type</label><select id="msg-schedule-type" onchange="onMsgScheduleTypeChange()"><option value="once">One-time</option><option value="recurring">Recurring (cron)</option></select></div>';
+            html += '<div class="form-group" id="msg-scheduled-for-group"><label>Run At</label><input type="datetime-local" id="msg-scheduled-for" /></div>';
+            html += '<div class="form-group" id="msg-cron-group" style="display:none;"><label>Cron Expression</label><input type="text" id="msg-cron" placeholder="0 9 * * *" /><small>Examples: "0 9 * * *" (9 AM daily), "0 0 * * 0" (midnight Sunday)</small></div>';
+            html += '</div>';
             html += '</div>';
           }
 
@@ -1285,27 +1434,68 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           return div.innerHTML;
         }
 
+        function onMsgScheduleChange() {
+          var checked = document.getElementById('msg-schedule-checkbox').checked;
+          document.getElementById('msg-schedule-options').style.display = checked ? 'block' : 'none';
+        }
+
+        function onMsgScheduleTypeChange() {
+          var type = document.getElementById('msg-schedule-type').value;
+          document.getElementById('msg-scheduled-for-group').style.display = type === 'once' ? 'block' : 'none';
+          document.getElementById('msg-cron-group').style.display = type === 'recurring' ? 'block' : 'none';
+        }
+
         async function sendMessage() {
           var input = document.getElementById('follow-up-input');
           var btn = document.getElementById('send-btn');
           var message = input.value.trim();
           if (!message) return;
 
+          var isScheduled = document.getElementById('msg-schedule-checkbox').checked;
+          var scheduleType = document.getElementById('msg-schedule-type').value;
+          var scheduledFor = document.getElementById('msg-scheduled-for').value;
+          var cronExpression = document.getElementById('msg-cron').value.trim();
+
+          if (isScheduled) {
+            if (scheduleType === 'once' && !scheduledFor) {
+              alert('Please select a date/time for scheduling');
+              return;
+            }
+            if (scheduleType === 'recurring' && !cronExpression) {
+              alert('Please enter a cron expression');
+              return;
+            }
+          }
+
           btn.disabled = true;
           btn.textContent = 'Sending...';
           input.disabled = true;
+
+          var body = { message: message };
+          if (isScheduled) {
+            if (scheduleType === 'once' && scheduledFor) {
+              body.scheduledFor = new Date(scheduledFor).toISOString();
+            } else if (scheduleType === 'recurring' && cronExpression) {
+              body.cronExpression = cronExpression;
+            }
+          }
 
           try {
             var res = await fetch('/api/conversations/' + conversationId + '/messages', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message: message })
+              body: JSON.stringify(body)
             });
             if (!res.ok) {
               var err = await res.json();
               throw new Error(err.error || 'Failed to send');
             }
             input.value = '';
+            // Reset scheduling options
+            document.getElementById('msg-schedule-checkbox').checked = false;
+            document.getElementById('msg-schedule-options').style.display = 'none';
+            document.getElementById('msg-scheduled-for').value = '';
+            document.getElementById('msg-cron').value = '';
             await fetchConversation();
           } catch (e) {
             alert('Error: ' + e.message);
@@ -1577,9 +1767,20 @@ app.post("/api/conversations", async (c) => {
     },
   });
 
-  // If initial message provided, send it
+  // If initial message provided, send it (with optional scheduling)
   if (body.message) {
-    await sendMessage(conversation.id, body.message);
+    const scheduleOptions: { scheduledFor?: Date; cronExpression?: string } = {};
+    if (body.scheduledFor) {
+      scheduleOptions.scheduledFor = new Date(body.scheduledFor);
+    }
+    if (body.cronExpression) {
+      scheduleOptions.cronExpression = body.cronExpression;
+    }
+    await sendMessage(
+      conversation.id,
+      body.message,
+      Object.keys(scheduleOptions).length > 0 ? scheduleOptions : undefined
+    );
   }
 
   return c.json(conversation, 201);
@@ -1597,7 +1798,7 @@ app.get("/api/conversations/:id", async (c) => {
   return c.json(conversation);
 });
 
-// Send a message to a conversation
+// Send a message to a conversation (with optional scheduling)
 app.post("/api/conversations/:id/messages", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
@@ -1607,7 +1808,21 @@ app.post("/api/conversations/:id/messages", async (c) => {
   }
 
   try {
-    const job = await sendMessage(id, body.message);
+    const scheduleOptions: { scheduledFor?: Date; cronExpression?: string } = {};
+    if (body.scheduledFor) {
+      scheduleOptions.scheduledFor = new Date(body.scheduledFor);
+    }
+    if (body.cronExpression) {
+      if (!isValidCronExpression(body.cronExpression)) {
+        return c.json({ error: `Invalid cron expression: ${body.cronExpression}` }, 400);
+      }
+      scheduleOptions.cronExpression = body.cronExpression;
+    }
+    const job = await sendMessage(
+      id,
+      body.message,
+      Object.keys(scheduleOptions).length > 0 ? scheduleOptions : undefined
+    );
     return c.json({ job, message: "Message queued for processing" }, 202);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);

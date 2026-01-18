@@ -711,7 +711,7 @@ server.registerTool(
 server.registerTool(
   "create_conversation",
   {
-    description: "Create a new conversation and optionally send an initial message. Supports workspaces and git worktrees for parallel work.",
+    description: "Create a new conversation and optionally send an initial message. Supports workspaces, git worktrees, and scheduling.",
     inputSchema: {
       message: z
         .string()
@@ -738,9 +738,17 @@ server.registerTool(
         .string()
         .optional()
         .describe("Working directory (used if workspaceId is not provided)"),
+      scheduledFor: z
+        .string()
+        .optional()
+        .describe("ISO datetime string for when to send the initial message (e.g., '2025-01-20T09:00:00Z')"),
+      cronExpression: z
+        .string()
+        .optional()
+        .describe("Cron expression for recurring messages (e.g., '0 9 * * *' for 9 AM daily)"),
     },
   },
-  async ({ message, title, workspaceId, useWorktree, branchName, cwd }) => {
+  async ({ message, title, workspaceId, useWorktree, branchName, cwd, scheduledFor, cronExpression }) => {
     let finalCwd = cwd;
     let worktreePath: string | undefined;
     let worktreeBranch: string | undefined;
@@ -804,16 +812,44 @@ server.registerTool(
       },
     });
 
+    // Validate cron expression if provided
+    if (cronExpression && !isValidCronExpression(cronExpression)) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: Invalid cron expression '${cronExpression}'`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
     // Send initial message if provided
     if (message) {
-      await sendMessage(conversation.id, message);
+      const scheduleOptions: { scheduledFor?: Date; cronExpression?: string } = {};
+      if (scheduledFor) {
+        scheduleOptions.scheduledFor = new Date(scheduledFor);
+      }
+      if (cronExpression) {
+        scheduleOptions.cronExpression = cronExpression;
+      }
+      await sendMessage(conversation.id, message, Object.keys(scheduleOptions).length > 0 ? scheduleOptions : undefined);
     }
 
     let responseText = `Conversation created successfully!\n\nID: ${conversation.id}`;
     if (title) responseText += `\nTitle: ${title}`;
     if (finalCwd) responseText += `\nWorking Directory: ${finalCwd}`;
     if (worktreeBranch) responseText += `\nBranch: ${worktreeBranch}`;
-    if (message) responseText += `\n\nInitial message queued for processing.`;
+    if (message) {
+      if (cronExpression) {
+        responseText += `\n\nInitial message scheduled (recurring: ${cronExpression})`;
+      } else if (scheduledFor) {
+        responseText += `\n\nInitial message scheduled for ${scheduledFor}`;
+      } else {
+        responseText += `\n\nInitial message queued for processing.`;
+      }
+    }
 
     return {
       content: [
@@ -924,7 +960,7 @@ server.registerTool(
 server.registerTool(
   "send_conversation_message",
   {
-    description: "Send a follow-up message to an existing conversation",
+    description: "Send a follow-up message to an existing conversation. Supports scheduling for later or recurring execution.",
     inputSchema: {
       conversationId: z
         .number()
@@ -932,17 +968,60 @@ server.registerTool(
       message: z
         .string()
         .describe("The message to send"),
+      scheduledFor: z
+        .string()
+        .optional()
+        .describe("ISO datetime string for when to send the message (e.g., '2025-01-20T09:00:00Z')"),
+      cronExpression: z
+        .string()
+        .optional()
+        .describe("Cron expression for recurring messages (e.g., '0 9 * * *' for 9 AM daily)"),
     },
   },
-  async ({ conversationId, message }) => {
+  async ({ conversationId, message, scheduledFor, cronExpression }) => {
+    // Validate cron expression if provided
+    if (cronExpression && !isValidCronExpression(cronExpression)) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: Invalid cron expression '${cronExpression}'`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
     try {
-      const job = await sendMessage(conversationId, message);
+      const scheduleOptions: { scheduledFor?: Date; cronExpression?: string } = {};
+      if (scheduledFor) {
+        scheduleOptions.scheduledFor = new Date(scheduledFor);
+      }
+      if (cronExpression) {
+        scheduleOptions.cronExpression = cronExpression;
+      }
+
+      const job = await sendMessage(
+        conversationId,
+        message,
+        Object.keys(scheduleOptions).length > 0 ? scheduleOptions : undefined
+      );
+
+      let responseText = `Message ${job.status === 'scheduled' ? 'scheduled' : 'queued for processing'}.\n\nConversation ID: ${conversationId}\nJob ID: ${job.id}\nStatus: ${job.status}`;
+      if (cronExpression) {
+        responseText += `\nSchedule: ${cronExpression}`;
+        if (job.nextRunAt) {
+          responseText += `\nNext Run: ${job.nextRunAt}`;
+        }
+      } else if (scheduledFor) {
+        responseText += `\nScheduled For: ${scheduledFor}`;
+      }
 
       return {
         content: [
           {
             type: "text" as const,
-            text: `Message queued for processing.\n\nConversation ID: ${conversationId}\nJob ID: ${job.id}\nStatus: ${job.status}`,
+            text: responseText,
           },
         ],
       };

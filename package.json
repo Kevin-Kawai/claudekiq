@@ -1,10 +1,15 @@
 {
-  "name": "sqlite_prisma_test",
+  "name": "ClaudeQueue",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "start": "ts-node src/index.ts",
+    "producer": "ts-node src/producer.ts",
+    "worker": "ts-node src/worker.ts",
+    "server": "ts-node src/server.tsx",
+    "mcp": "ts-node src/mcp-server.ts",
+    "dev": "concurrently \"npm run server\" \"npm run worker\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,7 +24,13 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.9",
     "@libsql/client": "^0.17.0",
-    "@prisma/adapter-libsql": "^7.2.0"
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@prisma/adapter-libsql": "^7.2.0",
+    "concurrently": "^9.2.1",
+    "cron-parser": "^5.5.0",
+    "hono": "^4.11.4",
+    "zod": "^4.3.5"
   }
 }

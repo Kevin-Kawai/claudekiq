@@ -15,3 +15,29 @@ model User {
   email     String   @unique
   createdAt DateTime @default(now())
 }
+
+model Job {
+  id          Int       @id @default(autoincrement())
+  queue       String    @default("default")
+  payload     String
+  status      String    @default("pending") // scheduled, pending, processing, completed, failed
+  priority    Int       @default(0)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  error       String?
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+  completedAt DateTime?
+
+  // Scheduling fields
+  scheduledFor   DateTime? // When to run this job (null = run immediately)
+  cronExpression String?   // Cron expression for recurring jobs (e.g., "0 9 * * *")
+  isRecurring    Boolean   @default(false)
+  lastRunAt      DateTime? // Last time this recurring job was executed
+  nextRunAt      DateTime? // Next scheduled run time for recurring jobs
+  parentJobId    Int?      // For recurring jobs, links instances back to the parent definition
+
+  @@index([queue, status, priority, createdAt])
+  @@index([status, scheduledFor]) // For efficiently finding ready scheduled jobs
+  @@index([isRecurring, nextRunAt]) // For efficiently finding recurring jobs to spawn
+}

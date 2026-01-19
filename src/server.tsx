@@ -1729,9 +1729,9 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
         .status-active { background: #d1fae5; color: #065f46; }
         .status-closed { background: #e5e7eb; color: #374151; }
-        .conversation { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .conversation h2 { margin-bottom: 15px; font-size: 18px; }
-        .messages { max-height: 500px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+        .conversation { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        .conversation h2 { margin-bottom: 15px; font-size: 18px; flex-shrink: 0; }
+        .messages { flex: 1; min-height: 300px; max-height: calc(100vh - 400px); overflow-y: auto; border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
         .message { margin-bottom: 15px; padding: 10px 15px; border-radius: 8px; }
         .message:last-child { margin-bottom: 0; }
         .message-user { background: #e3f2fd; margin-left: 50px; }

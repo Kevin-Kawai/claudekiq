@@ -60,6 +60,10 @@ export const ConversationMessageJob = defineJob<ConversationMessageJobArgs>(
     options.mcpServers = {
       // Add your remote MCP servers here in this format:
       // "server-name": { type: "sse", url: "https://...", headers: {...} }
+      claudekiq: {
+        command: "sh",
+        args: ["-c", "cd /home/kevin/Projects/claudekiq && npm run mcp"]
+      },
       notion: {
         command: "npx",
         args: ["-y", "mcp-remote", "https://mcp.notion.com/mcp"]

@@ -960,6 +960,7 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         });
 
         async function createConversation() {
+          var name = document.getElementById('new-conversation-name').value.trim();
           var message = document.getElementById('new-conversation-message').value.trim();
           if (!message) {
             alert('Please enter a message');
@@ -991,6 +992,9 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           }
 
           var body = { message: message };
+          if (name) {
+            body.title = name;
+          }
           if (workspaceId) {
             body.workspaceId = workspaceId;
             body.useWorktree = useWorktree;
@@ -1264,6 +1268,10 @@ const NewConversationModal: FC = () => (
   <div id="new-conversation-modal" class="modal" onclick="if(event.target===this)closeNewConversationModal()">
     <div class="modal-content">
       <h3>New Conversation</h3>
+      <div class="form-group">
+        <label>Name (optional)</label>
+        <input type="text" id="new-conversation-name" placeholder="e.g., Fix login bug, Add dark mode" />
+      </div>
       <div class="form-group">
         <label>Initial Message</label>
         <textarea id="new-conversation-message" rows={4} placeholder="What would you like Claude to do?" style="width:100%;resize:vertical;"></textarea>
@@ -1784,7 +1792,7 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
       <div class="container">
         <div class="header">
           <a href="/" class="back-link">← Back to Dashboard</a>
-          <h1>Conversation #{conversationId}</h1>
+          <h1 id="conv-title" style="cursor:pointer;" onclick="editTitle()" title="Click to edit">Conversation #{conversationId}</h1>
           <button id="pause-btn" onclick="togglePolling()" style="margin-left:auto;padding:6px 12px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;">Pause Polling</button>
         </div>
         <div id="conversation-details">
@@ -1959,6 +1967,8 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
 
         function renderConversation(conv) {
           const hasActiveJob = conv.jobs && conv.jobs.some(j => j.status === 'processing' || j.status === 'pending');
+
+          updateTitleDisplay(conv.title);
 
           let html = '<div class="conv-info"><h2>Conversation Info</h2><div class="info-grid">';
           html += '<div class="info-item"><div class="info-label">Status</div><div class="info-value"><span class="status status-' + conv.status + '">' + conv.status + '</span></div></div>';
@@ -2336,6 +2346,33 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           pollingPaused = !pollingPaused;
           document.getElementById('pause-btn').textContent = pollingPaused ? 'Resume Polling' : 'Pause Polling';
         }
+
+        var currentTitle = '';
+        function updateTitleDisplay(title) {
+          currentTitle = title || '';
+          document.getElementById('conv-title').textContent = title || 'Conversation #' + conversationId;
+          document.title = (title || 'Conversation #' + conversationId);
+        }
+
+        function editTitle() {
+          var newTitle = prompt('Enter conversation name:', currentTitle);
+          if (newTitle === null) return;
+          saveTitle(newTitle.trim());
+        }
+
+        async function saveTitle(title) {
+          try {
+            var res = await fetch('/api/conversations/' + conversationId + '/title', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: title || null })
+            });
+            if (!res.ok) throw new Error('Failed to save title');
+            updateTitleDisplay(title);
+          } catch (e) {
+            alert('Error: ' + e.message);
+          }
+        }
       </script>`)}
     </body>
   </html>
@@ -2690,6 +2727,24 @@ app.patch("/api/conversations/:id/options", async (c) => {
     data: {
       queryOptions: Object.keys(newOptions).length > 0 ? JSON.stringify(newOptions) : null,
     },
+  });
+
+  return c.json(updated);
+});
+
+// Update conversation title
+app.patch("/api/conversations/:id/title", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json();
+
+  const conversation = await getConversation(id);
+  if (!conversation) {
+    return c.json({ error: "Conversation not found" }, 404);
+  }
+
+  const updated = await prisma.conversation.update({
+    where: { id },
+    data: { title: body.title || null },
   });
 
   return c.json(updated);

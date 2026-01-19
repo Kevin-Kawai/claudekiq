@@ -1498,6 +1498,8 @@ const JobDetailsPage: FC<{ jobId: string }> = ({ jobId }) => (
         .follow-up button { padding: 10px 20px; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
         .follow-up button:hover { background: #1565c0; }
         .follow-up button:disabled { background: #ccc; cursor: not-allowed; }
+        .reset-btn { background: #dc2626; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 12px; }
+        .reset-btn:hover { background: #b91c1c; }
         .no-session { color: #666; font-style: italic; }
         .loading { text-align: center; padding: 40px; color: #666; }
         .error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
@@ -1542,7 +1544,11 @@ const JobDetailsPage: FC<{ jobId: string }> = ({ jobId }) => (
           if (job.sessionId) {
             html += '<div class="info-item"><div class="info-label">Session ID</div><div class="info-value" style="font-size:11px;word-break:break-all;">' + job.sessionId + '</div></div>';
           }
-          html += '</div></div>';
+          html += '</div>';
+          if (job.status === 'processing') {
+            html += '<button class="reset-btn" onclick="resetJob()">Reset Job</button>';
+          }
+          html += '</div>';
 
           html += '<div class="conversation"><h2>Conversation</h2>';
           html += '<div class="messages" id="messages">';
@@ -1647,6 +1653,20 @@ const JobDetailsPage: FC<{ jobId: string }> = ({ jobId }) => (
           } finally {
             btn.disabled = false;
             btn.textContent = 'Send';
+          }
+        }
+
+        async function resetJob() {
+          if (!confirm('Reset this job back to pending? It will be retried.')) return;
+          try {
+            const res = await fetch('/api/jobs/' + jobId + '/reset', { method: 'POST' });
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Failed to reset job');
+            }
+            await fetchJobDetails();
+          } catch (e) {
+            alert('Error: ' + e.message);
           }
         }
 
@@ -1786,6 +1806,8 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             var inputEl = document.getElementById('follow-up-input');
             var savedInput = inputEl ? inputEl.value : '';
             var wasFocused = inputEl && activeEl === inputEl;
+            var savedSelectionStart = inputEl ? inputEl.selectionStart : 0;
+            var savedSelectionEnd = inputEl ? inputEl.selectionEnd : 0;
 
             // Preserve scroll position
             var messagesEl = document.getElementById('messages');
@@ -1832,6 +1854,12 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             var savedNewTool = document.getElementById('conv-new-tool');
             var savedNewToolValue = savedNewTool ? savedNewTool.value : '';
 
+            // Save checkbox states before re-render
+            var savedCheckboxStates = {};
+            document.querySelectorAll('#conv-tools-checkboxes input[type="checkbox"]').forEach(function(cb) {
+              savedCheckboxStates[cb.value] = cb.checked;
+            });
+
             renderConversation(conv);
 
             // Only reload options if the panel isn't open (user not editing)
@@ -1841,6 +1869,12 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
               // Just re-render the current state
               renderConvDirectories();
               renderConvCustomTools();
+              // Restore checkbox states
+              document.querySelectorAll('#conv-tools-checkboxes input[type="checkbox"]').forEach(function(cb) {
+                if (savedCheckboxStates.hasOwnProperty(cb.value)) {
+                  cb.checked = savedCheckboxStates[cb.value];
+                }
+              });
             }
 
             // Restore options panel state
@@ -1880,8 +1914,9 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
               newInputEl.value = savedInput;
               if (wasFocused) {
                 newInputEl.focus();
-                // Restore cursor to end
-                newInputEl.selectionStart = newInputEl.selectionEnd = savedInput.length;
+                // Restore cursor to original position
+                newInputEl.selectionStart = savedSelectionStart;
+                newInputEl.selectionEnd = savedSelectionEnd;
               }
             }
 
@@ -2463,6 +2498,21 @@ app.post("/api/jobs/:id/resume", async (c) => {
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
   }
+});
+
+// API: Reset a stuck processing job back to pending
+app.post("/api/jobs/:id/reset", async (c) => {
+  const id = parseInt(c.req.param("id"));
+  const job = await prisma.job.findUnique({ where: { id } });
+  if (!job) return c.json({ error: "Job not found" }, 404);
+  if (job.status !== "processing") {
+    return c.json({ error: "Only processing jobs can be reset" }, 400);
+  }
+  const updated = await prisma.job.update({
+    where: { id },
+    data: { status: "pending", processedAt: null },
+  });
+  return c.json(updated);
 });
 
 // API: Get job details

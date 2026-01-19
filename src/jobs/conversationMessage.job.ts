@@ -31,12 +31,22 @@ export const ConversationMessageJob = defineJob<ConversationMessageJobArgs>(
       },
     });
 
+    // Parse stored query options
+    const storedOptions = conversation.queryOptions
+      ? JSON.parse(conversation.queryOptions)
+      : {};
+
     // Build query options
     const options: Parameters<typeof query>[0]["options"] = {
-      allowedTools: ["Read", "Edit", "Glob", "Bash"],
+      allowedTools: storedOptions.allowedTools || ["Read", "Edit", "Glob", "Bash"],
       permissionMode: "acceptEdits",
       cwd: conversation.cwd || process.cwd(),
     };
+
+    // Add additional directories if specified
+    if (storedOptions.additionalDirectories?.length > 0) {
+      options.additionalDirectories = storedOptions.additionalDirectories;
+    }
 
     // Resume if we have a session ID
     if (conversation.sessionId) {

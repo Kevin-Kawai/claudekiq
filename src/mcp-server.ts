@@ -746,9 +746,17 @@ server.registerTool(
         .string()
         .optional()
         .describe("Cron expression for recurring messages (e.g., '0 9 * * *' for 9 AM daily)"),
+      additionalDirectories: z
+        .array(z.string())
+        .optional()
+        .describe("Additional directories Claude can access beyond the working directory"),
+      allowedTools: z
+        .array(z.string())
+        .optional()
+        .describe("Tools Claude is allowed to use (defaults to ['Read', 'Edit', 'Glob', 'Bash'])"),
     },
   },
-  async ({ message, title, workspaceId, useWorktree, branchName, cwd, scheduledFor, cronExpression }) => {
+  async ({ message, title, workspaceId, useWorktree, branchName, cwd, scheduledFor, cronExpression, additionalDirectories, allowedTools }) => {
     let finalCwd = cwd;
     let worktreePath: string | undefined;
     let worktreeBranch: string | undefined;
@@ -801,6 +809,15 @@ server.registerTool(
       }
     }
 
+    // Build query options if provided
+    let queryOptions: string | undefined;
+    if (additionalDirectories || allowedTools) {
+      queryOptions = JSON.stringify({
+        additionalDirectories,
+        allowedTools,
+      });
+    }
+
     // Create the conversation
     const conversation = await prisma.conversation.create({
       data: {
@@ -809,6 +826,7 @@ server.registerTool(
         workspaceId,
         worktreePath,
         worktreeBranch,
+        queryOptions,
       },
     });
 

@@ -74,6 +74,9 @@ model Conversation {
   worktreePath  String?    // Path to the worktree if one was created
   worktreeBranch String?   // Branch name for the worktree
 
+  // Claude SDK query options (JSON)
+  queryOptions String?    // JSON string: { additionalDirectories?: string[], allowedTools?: string[] }
+
   // Relations
   messages Message[]
   jobs     Job[]
@@ -92,4 +95,15 @@ model Message {
   createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+model Toolset {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  tools     String   // JSON array of tool names, e.g. ["Read", "Edit", "Glob", "Bash"]
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isDefault])
 }

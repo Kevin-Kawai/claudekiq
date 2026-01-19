@@ -158,6 +158,21 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         .btn-danger { background: #ef4444; color: white; }
         .btn-danger:hover { background: #dc2626; }
         .btn-small { padding: 4px 8px; font-size: 12px; }
+        .toolsets-section { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .toolsets-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+        .toolsets-list { padding: 0; }
+        .toolset-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f3f4f6; }
+        .toolset-item:last-child { border-bottom: none; }
+        .toolset-info { flex: 1; }
+        .toolset-name { font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+        .toolset-default-badge { background: #3b82f6; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+        .toolset-tools { font-size: 13px; color: #6b7280; font-family: monospace; }
+        .toolset-actions { display: flex; gap: 8px; }
+        .tools-checkboxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; padding: 8px; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb; }
+        .tools-checkboxes .checkbox-label { font-size: 13px; }
+        .tool-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e0f2fe; color: #0369a1; border-radius: 4px; font-size: 12px; font-family: monospace; }
+        .tool-tag button { background: none; border: none; color: #0369a1; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
+        .tool-tag button:hover { color: #ef4444; }
         .form-group input[type="checkbox"] { width: auto; margin-right: 8px; }
         .checkbox-label { display: flex; align-items: center; cursor: pointer; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
@@ -441,6 +456,193 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           }
         }
 
+        // ============ Toolsets ============
+        var toolsetsCache = [];
+        var toolsetCustomTools = [];
+        var commonToolsList = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash', 'Task', 'WebFetch', 'WebSearch', 'NotebookEdit'];
+
+        async function fetchToolsets() {
+          try {
+            var res = await fetch('/api/toolsets');
+            var toolsets = await res.json();
+            toolsetsCache = toolsets;
+            var container = document.getElementById('toolsets-list');
+
+            if (toolsets.length === 0) {
+              container.innerHTML = '<div class="empty-state">No toolsets configured. Add one to create preset tool configurations!</div>';
+              return;
+            }
+
+            container.innerHTML = toolsets.map(function(ts) {
+              var tools = JSON.parse(ts.tools);
+              var defaultBadge = ts.isDefault ? '<span class="toolset-default-badge">Default</span>' : '';
+              return '<div class="toolset-item">' +
+                '<div class="toolset-info">' +
+                  '<div class="toolset-name">' + escapeHtml(ts.name) + ' ' + defaultBadge + '</div>' +
+                  '<div class="toolset-tools">' + tools.join(', ') + '</div>' +
+                '</div>' +
+                '<div class="toolset-actions">' +
+                  (ts.isDefault ? '' : '<button class="btn btn-secondary btn-small" onclick="setDefaultToolset(' + ts.id + ')">Set Default</button>') +
+                  '<button class="btn btn-secondary btn-small" onclick="editToolset(' + ts.id + ')">Edit</button>' +
+                  '<button class="btn btn-danger btn-small" onclick="deleteToolset(' + ts.id + ')">Delete</button>' +
+                '</div>' +
+              '</div>';
+            }).join('');
+          } catch (e) {
+            console.error('Failed to fetch toolsets:', e);
+          }
+        }
+
+        function openNewToolsetModal() {
+          document.getElementById('toolset-modal-title').textContent = 'Add Toolset';
+          document.getElementById('edit-toolset-id').value = '';
+          document.getElementById('new-toolset-modal').classList.add('active');
+          // Reset to default tools
+          var checkboxes = document.querySelectorAll('#toolset-tools-checkboxes input[type="checkbox"]');
+          checkboxes.forEach(function(cb) {
+            cb.checked = ['Read', 'Edit', 'Glob', 'Bash'].indexOf(cb.value) !== -1;
+          });
+          // Reset custom tools
+          toolsetCustomTools = [];
+          document.getElementById('toolset-custom-tool-input').value = '';
+          renderToolsetCustomTools();
+        }
+
+        function closeNewToolsetModal() {
+          document.getElementById('new-toolset-modal').classList.remove('active');
+          document.getElementById('new-toolset-name').value = '';
+          document.getElementById('new-toolset-default').checked = false;
+          document.getElementById('edit-toolset-id').value = '';
+          toolsetCustomTools = [];
+          renderToolsetCustomTools();
+        }
+
+        function addToolsetCustomTool() {
+          var input = document.getElementById('toolset-custom-tool-input');
+          var tool = input.value.trim();
+          if (!tool) return;
+          if (toolsetCustomTools.indexOf(tool) === -1 && commonToolsList.indexOf(tool) === -1) {
+            toolsetCustomTools.push(tool);
+            renderToolsetCustomTools();
+          }
+          input.value = '';
+        }
+
+        function removeToolsetCustomTool(index) {
+          toolsetCustomTools.splice(index, 1);
+          renderToolsetCustomTools();
+        }
+
+        function renderToolsetCustomTools() {
+          var container = document.getElementById('toolset-custom-tools-list');
+          container.innerHTML = toolsetCustomTools.map(function(tool, idx) {
+            return '<span class="tool-tag">' + escapeHtml(tool) + '<button type="button" onclick="removeToolsetCustomTool(' + idx + ')">&times;</button></span>';
+          }).join('');
+        }
+
+        function getSelectedTools() {
+          var checkboxes = document.querySelectorAll('#toolset-tools-checkboxes input[type="checkbox"]:checked');
+          var tools = Array.from(checkboxes).map(function(cb) { return cb.value; });
+          return tools.concat(toolsetCustomTools);
+        }
+
+        function setToolCheckboxes(tools) {
+          var checkboxes = document.querySelectorAll('#toolset-tools-checkboxes input[type="checkbox"]');
+          toolsetCustomTools = [];
+          checkboxes.forEach(function(cb) {
+            cb.checked = tools.indexOf(cb.value) !== -1;
+          });
+          // Extract custom tools (not in common list)
+          tools.forEach(function(tool) {
+            if (commonToolsList.indexOf(tool) === -1) {
+              toolsetCustomTools.push(tool);
+            }
+          });
+          renderToolsetCustomTools();
+        }
+
+        async function submitToolset() {
+          var name = document.getElementById('new-toolset-name').value.trim();
+          var tools = getSelectedTools();
+          var isDefault = document.getElementById('new-toolset-default').checked;
+          var editId = document.getElementById('edit-toolset-id').value;
+
+          if (!name) {
+            alert('Please enter a name');
+            return;
+          }
+
+          if (tools.length === 0) {
+            alert('Please select at least one tool');
+            return;
+          }
+
+          try {
+            var url = editId ? '/api/toolsets/' + editId : '/api/toolsets';
+            var method = editId ? 'PUT' : 'POST';
+            var res = await fetch(url, {
+              method: method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: name, tools: tools, isDefault: isDefault })
+            });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            closeNewToolsetModal();
+            fetchToolsets();
+          } catch (e) {
+            console.error('Failed to save toolset:', e);
+            alert('Failed to save toolset');
+          }
+        }
+
+        function editToolset(id) {
+          var toolset = toolsetsCache.find(function(ts) { return ts.id === id; });
+          if (!toolset) return;
+
+          document.getElementById('toolset-modal-title').textContent = 'Edit Toolset';
+          document.getElementById('edit-toolset-id').value = id;
+          document.getElementById('new-toolset-name').value = toolset.name;
+          document.getElementById('new-toolset-default').checked = toolset.isDefault;
+          setToolCheckboxes(JSON.parse(toolset.tools));
+          document.getElementById('new-toolset-modal').classList.add('active');
+        }
+
+        async function deleteToolset(id) {
+          if (!confirm('Are you sure you want to delete this toolset?')) {
+            return;
+          }
+          try {
+            var res = await fetch('/api/toolsets/' + id, { method: 'DELETE' });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            fetchToolsets();
+          } catch (e) {
+            console.error('Failed to delete toolset:', e);
+            alert('Failed to delete toolset');
+          }
+        }
+
+        async function setDefaultToolset(id) {
+          try {
+            var res = await fetch('/api/toolsets/' + id + '/set-default', { method: 'POST' });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            fetchToolsets();
+          } catch (e) {
+            console.error('Failed to set default toolset:', e);
+            alert('Failed to set default toolset');
+          }
+        }
+
         // ============ Conversations ============
         var selectedWorkspaceId = null;
 
@@ -530,6 +732,88 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             opt.textContent = ws.name + ' (' + ws.path + ')';
             select.appendChild(opt);
           });
+
+          // Populate toolset dropdown and apply default toolset
+          var toolsetSelect = document.getElementById('new-conversation-toolset');
+          toolsetSelect.innerHTML = '<option value="">-- Use default tools --</option>';
+          var defaultToolset = null;
+          toolsetsCache.forEach(function(ts) {
+            var opt = document.createElement('option');
+            opt.value = ts.id;
+            opt.textContent = ts.name + (ts.isDefault ? ' (Default)' : '');
+            toolsetSelect.appendChild(opt);
+            if (ts.isDefault) {
+              defaultToolset = ts;
+              opt.selected = true;
+            }
+          });
+
+          // Apply default toolset tools if available
+          if (defaultToolset) {
+            setConversationTools(JSON.parse(defaultToolset.tools));
+          } else {
+            // Set default tools: Read, Edit, Glob, Bash
+            setConversationTools(['Read', 'Edit', 'Glob', 'Bash']);
+          }
+        }
+
+        var conversationCustomTools = [];
+
+        function onToolsetChange() {
+          var toolsetId = document.getElementById('new-conversation-toolset').value;
+          if (!toolsetId) {
+            // Default tools
+            setConversationTools(['Read', 'Edit', 'Glob', 'Bash']);
+            return;
+          }
+          var toolset = toolsetsCache.find(function(ts) { return ts.id === parseInt(toolsetId); });
+          if (toolset) {
+            setConversationTools(JSON.parse(toolset.tools));
+          }
+        }
+
+        function setConversationTools(tools) {
+          var checkboxes = document.querySelectorAll('#conversation-tools-list input[type="checkbox"]');
+          conversationCustomTools = [];
+          checkboxes.forEach(function(cb) {
+            cb.checked = tools.indexOf(cb.value) !== -1;
+          });
+          // Extract custom tools (not in common list)
+          tools.forEach(function(tool) {
+            if (commonToolsList.indexOf(tool) === -1) {
+              conversationCustomTools.push(tool);
+            }
+          });
+          renderConversationCustomTools();
+        }
+
+        function getConversationTools() {
+          var checkboxes = document.querySelectorAll('#conversation-tools-list input[type="checkbox"]:checked');
+          var tools = Array.from(checkboxes).map(function(cb) { return cb.value; });
+          return tools.concat(conversationCustomTools);
+        }
+
+        function addConversationCustomTool() {
+          var input = document.getElementById('conversation-custom-tool-input');
+          var tool = input.value.trim();
+          if (!tool) return;
+          if (conversationCustomTools.indexOf(tool) === -1 && commonToolsList.indexOf(tool) === -1) {
+            conversationCustomTools.push(tool);
+            renderConversationCustomTools();
+          }
+          input.value = '';
+        }
+
+        function removeConversationCustomTool(index) {
+          conversationCustomTools.splice(index, 1);
+          renderConversationCustomTools();
+        }
+
+        function renderConversationCustomTools() {
+          var container = document.getElementById('conversation-custom-tools-list');
+          container.innerHTML = conversationCustomTools.map(function(tool, idx) {
+            return '<span class="tool-tag">' + escapeHtml(tool) + '<button type="button" onclick="removeConversationCustomTool(' + idx + ')">&times;</button></span>';
+          }).join('');
         }
 
         function closeNewConversationModal() {
@@ -549,6 +833,18 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           document.getElementById('conversation-schedule-type-group').style.display = 'none';
           document.getElementById('conversation-scheduled-for-group').style.display = 'none';
           document.getElementById('conversation-cron-group').style.display = 'none';
+          // Reset additional directories
+          document.getElementById('new-conversation-add-dirs').checked = false;
+          document.getElementById('additional-dirs-section').style.display = 'none';
+          document.getElementById('add-dir-manual').value = '';
+          additionalDirs = [];
+          renderAdditionalDirsList();
+          // Reset toolset and custom tools
+          document.getElementById('new-conversation-toolset').value = '';
+          document.getElementById('conversation-custom-tool-input').value = '';
+          conversationCustomTools = [];
+          renderConversationCustomTools();
+          setConversationTools(['Read', 'Edit', 'Glob', 'Bash']);
         }
 
         function onWorktreeChange() {
@@ -571,6 +867,75 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           var type = document.getElementById('new-conversation-schedule-type').value;
           document.getElementById('conversation-scheduled-for-group').style.display = type === 'once' ? 'block' : 'none';
           document.getElementById('conversation-cron-group').style.display = type === 'recurring' ? 'block' : 'none';
+        }
+
+        // Additional directories
+        var additionalDirs = [];
+
+        function onAddDirsChange() {
+          var checked = document.getElementById('new-conversation-add-dirs').checked;
+          document.getElementById('additional-dirs-section').style.display = checked ? 'block' : 'none';
+          if (checked) {
+            // Populate workspace dropdown
+            var select = document.getElementById('add-dir-workspace-select');
+            select.innerHTML = '<option value="">-- Select workspace --</option>';
+            workspacesCache.forEach(function(ws) {
+              var opt = document.createElement('option');
+              opt.value = ws.path;
+              opt.textContent = ws.name + ' (' + ws.path + ')';
+              select.appendChild(opt);
+            });
+          }
+        }
+
+        function addDirFromWorkspace() {
+          var select = document.getElementById('add-dir-workspace-select');
+          var path = select.value;
+          if (!path) {
+            alert('Please select a workspace');
+            return;
+          }
+          if (additionalDirs.indexOf(path) === -1) {
+            additionalDirs.push(path);
+            renderAdditionalDirsList();
+          }
+          select.value = '';
+        }
+
+        function addDirManually() {
+          var input = document.getElementById('add-dir-manual');
+          var path = input.value.trim();
+          if (!path) {
+            alert('Please enter a directory path');
+            return;
+          }
+          if (additionalDirs.indexOf(path) === -1) {
+            additionalDirs.push(path);
+            renderAdditionalDirsList();
+          }
+          input.value = '';
+        }
+
+        function removeAdditionalDir(index) {
+          additionalDirs.splice(index, 1);
+          renderAdditionalDirsList();
+        }
+
+        function renderAdditionalDirsList() {
+          var container = document.getElementById('additional-dirs-list');
+          var group = document.getElementById('additional-dirs-list-group');
+          if (additionalDirs.length === 0) {
+            group.style.display = 'none';
+            container.innerHTML = '';
+            return;
+          }
+          group.style.display = 'block';
+          container.innerHTML = additionalDirs.map(function(dir, idx) {
+            return '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#f3f4f6;border-radius:4px;">' +
+              '<span style="flex:1;font-family:monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(dir) + '</span>' +
+              '<button type="button" onclick="removeAdditionalDir(' + idx + ')" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;">&times;</button>' +
+            '</div>';
+          }).join('');
         }
 
         function onWorkspaceChange() {
@@ -644,6 +1009,17 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             }
           }
 
+          // Add additional directories if any
+          if (additionalDirs.length > 0) {
+            body.additionalDirectories = additionalDirs.slice();
+          }
+
+          // Add allowed tools
+          var allowedTools = getConversationTools();
+          if (allowedTools.length > 0) {
+            body.allowedTools = allowedTools;
+          }
+
           try {
             var res = await fetch('/api/conversations', {
               method: 'POST',
@@ -667,6 +1043,7 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         // Initial fetch
         fetchStats();
         fetchJobs();
+        fetchToolsets();
         fetchWorkspaces().then(function() {
           fetchConversations();
         });
@@ -817,6 +1194,72 @@ const NewWorkspaceModal: FC = () => (
   </div>
 );
 
+const ToolsetsSection: FC = () => (
+  <div class="toolsets-section">
+    <div class="toolsets-header">
+      <div>
+        <h2>Toolsets</h2>
+        <span class="refresh-info">Preset tool configurations for conversations</span>
+      </div>
+      <div class="job-buttons">
+        <button class="add-job-btn" onclick="openNewToolsetModal()">+ Add Toolset</button>
+      </div>
+    </div>
+    <div id="toolsets-list" class="toolsets-list">
+      <div class="empty-state">Loading...</div>
+    </div>
+  </div>
+);
+
+const NewToolsetModal: FC = () => (
+  <div id="new-toolset-modal" class="modal" onclick="if(event.target===this)closeNewToolsetModal()">
+    <div class="modal-content">
+      <h3 id="toolset-modal-title">Add Toolset</h3>
+      <input type="hidden" id="edit-toolset-id" value="" />
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="new-toolset-name" placeholder="read-only" />
+        <small>A short name for this tool configuration</small>
+      </div>
+      <div class="form-group">
+        <label>Common Tools</label>
+        <div class="tools-checkboxes" id="toolset-tools-checkboxes">
+          <label class="checkbox-label"><input type="checkbox" value="Read" checked /> Read</label>
+          <label class="checkbox-label"><input type="checkbox" value="Edit" checked /> Edit</label>
+          <label class="checkbox-label"><input type="checkbox" value="Write" /> Write</label>
+          <label class="checkbox-label"><input type="checkbox" value="Glob" checked /> Glob</label>
+          <label class="checkbox-label"><input type="checkbox" value="Grep" /> Grep</label>
+          <label class="checkbox-label"><input type="checkbox" value="Bash" checked /> Bash</label>
+          <label class="checkbox-label"><input type="checkbox" value="Task" /> Task</label>
+          <label class="checkbox-label"><input type="checkbox" value="WebFetch" /> WebFetch</label>
+          <label class="checkbox-label"><input type="checkbox" value="WebSearch" /> WebSearch</label>
+          <label class="checkbox-label"><input type="checkbox" value="NotebookEdit" /> NotebookEdit</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Custom Tools</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="toolset-custom-tool-input" placeholder="Bash:*, mcp__server__tool" style="flex:1;" />
+          <button type="button" class="btn btn-secondary" onclick="addToolsetCustomTool()">Add</button>
+        </div>
+        <small>Add custom tools like Bash:*, mcp__notion__notion-search, etc.</small>
+        <div id="toolset-custom-tools-list" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;"></div>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="new-toolset-default" />
+          Set as default
+        </label>
+        <small>This toolset will be preselected when starting new conversations</small>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" onclick="closeNewToolsetModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitToolset()">Save Toolset</button>
+      </div>
+    </div>
+  </div>
+);
+
 const NewConversationModal: FC = () => (
   <div id="new-conversation-modal" class="modal" onclick="if(event.target===this)closeNewConversationModal()">
     <div class="modal-content">
@@ -868,6 +1311,68 @@ const NewConversationModal: FC = () => (
         <label>Cron Expression</label>
         <input type="text" id="new-conversation-cron" placeholder="0 9 * * *" />
         <small>Examples: "0 9 * * *" (9 AM daily), "0 0 * * 0" (midnight Sunday)</small>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="new-conversation-add-dirs" onchange="onAddDirsChange()" />
+          Add additional directories
+        </label>
+        <small>Allow Claude to access directories beyond the working directory</small>
+      </div>
+      <div id="additional-dirs-section" style="display:none;">
+        <div class="form-group">
+          <label>Add from workspace</label>
+          <div style="display:flex;gap:8px;">
+            <select id="add-dir-workspace-select" style="flex:1;">
+              <option value="">-- Select workspace --</option>
+            </select>
+            <button type="button" class="btn btn-secondary" onclick="addDirFromWorkspace()">Add</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Or enter path manually</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="add-dir-manual" placeholder="/path/to/directory" style="flex:1;" />
+            <button type="button" class="btn btn-secondary" onclick="addDirManually()">Add</button>
+          </div>
+        </div>
+        <div class="form-group" id="additional-dirs-list-group" style="display:none;">
+          <label>Additional directories</label>
+          <div id="additional-dirs-list" style="display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Toolset</label>
+        <div style="display:flex;gap:8px;">
+          <select id="new-conversation-toolset" onchange="onToolsetChange()" style="flex:1;">
+            <option value="">-- Use default tools --</option>
+          </select>
+        </div>
+        <small>Select a preset toolset or customize tools below</small>
+      </div>
+      <div class="form-group">
+        <label>Common Tools</label>
+        <div id="conversation-tools-list" class="tools-checkboxes">
+          <label class="checkbox-label"><input type="checkbox" value="Read" checked /> Read</label>
+          <label class="checkbox-label"><input type="checkbox" value="Edit" checked /> Edit</label>
+          <label class="checkbox-label"><input type="checkbox" value="Write" /> Write</label>
+          <label class="checkbox-label"><input type="checkbox" value="Glob" checked /> Glob</label>
+          <label class="checkbox-label"><input type="checkbox" value="Grep" /> Grep</label>
+          <label class="checkbox-label"><input type="checkbox" value="Bash" checked /> Bash</label>
+          <label class="checkbox-label"><input type="checkbox" value="Task" /> Task</label>
+          <label class="checkbox-label"><input type="checkbox" value="WebFetch" /> WebFetch</label>
+          <label class="checkbox-label"><input type="checkbox" value="WebSearch" /> WebSearch</label>
+          <label class="checkbox-label"><input type="checkbox" value="NotebookEdit" /> NotebookEdit</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Custom Tools</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="conversation-custom-tool-input" placeholder="Bash:*, mcp__server__tool" style="flex:1;" />
+          <button type="button" class="btn btn-secondary" onclick="addConversationCustomTool()">Add</button>
+        </div>
+        <small>Add custom tools like Bash:*, mcp__notion__notion-search, etc.</small>
+        <div id="conversation-custom-tools-list" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;"></div>
       </div>
       <div class="modal-buttons">
         <button class="btn btn-secondary" onclick="closeNewConversationModal()">Cancel</button>
@@ -940,12 +1445,14 @@ const Dashboard: FC = () => (
     <h1>Queue Dashboard</h1>
     <QueueStats />
     <WorkspacesSection />
+    <ToolsetsSection />
     <ConversationsList />
     <JobList />
     <ScheduleModal />
     <ClaudePromptModal />
     <NewConversationModal />
     <NewWorkspaceModal />
+    <NewToolsetModal />
   </Layout>
 );
 
@@ -1218,6 +1725,31 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         .schedule-options small { color: #6b7280; font-size: 11px; }
         .checkbox-label { display: flex; align-items: center; cursor: pointer; font-size: 13px; color: #374151; }
         .checkbox-label input { width: auto; margin-right: 8px; }
+        .conv-options { margin-top: 15px; border-top: 1px solid #e5e7eb; padding-top: 15px; }
+        .conv-options-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+        .conv-options-header h3 { font-size: 14px; font-weight: 500; color: #374151; margin: 0; }
+        .conv-options-toggle { background: none; border: none; color: #6b7280; cursor: pointer; font-size: 12px; }
+        .conv-options-content { margin-top: 12px; display: none; }
+        .conv-options-content.open { display: block; }
+        .conv-options .form-group { margin-bottom: 12px; }
+        .conv-options .form-group:last-child { margin-bottom: 0; }
+        .conv-options label { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 500; color: #374151; }
+        .conv-options small { color: #6b7280; font-size: 11px; display: block; margin-top: 4px; }
+        .conv-options .dir-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        .conv-options .dir-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e0f2fe; color: #0369a1; border-radius: 4px; font-size: 11px; font-family: monospace; }
+        .conv-options .dir-tag button { background: none; border: none; color: #0369a1; cursor: pointer; font-size: 12px; padding: 0; line-height: 1; }
+        .conv-options .tool-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #fef3c7; color: #92400e; border-radius: 4px; font-size: 11px; font-family: monospace; }
+        .conv-options .tool-tag button { background: none; border: none; color: #92400e; cursor: pointer; font-size: 12px; padding: 0; line-height: 1; }
+        .conv-options .add-row { display: flex; gap: 6px; margin-top: 6px; }
+        .conv-options .add-row input { flex: 1; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; }
+        .conv-options .add-row button { padding: 6px 12px; background: #e5e7eb; color: #374151; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .conv-options .add-row button:hover { background: #d1d5db; }
+        .conv-options .save-btn { margin-top: 12px; padding: 8px 16px; background: #1976d2; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .conv-options .save-btn:hover { background: #1565c0; }
+        .conv-options .save-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .conv-options .tools-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+        .conv-options .tools-checkboxes .checkbox-label { display: flex; align-items: center; gap: 4px; font-size: 12px; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+        .conv-options .tools-checkboxes .checkbox-label input { margin: 0; }
       `}</style>
     </head>
     <body>
@@ -1237,13 +1769,17 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
 
         async function fetchConversation() {
           try {
-            // Check if user is interacting with scheduling form - if so, skip full re-render
+            // Check if user is interacting with scheduling form or options - if so, skip full re-render
             var activeEl = document.activeElement;
             var isInteractingWithSchedule = activeEl && (
               activeEl.id === 'msg-schedule-type' ||
               activeEl.id === 'msg-scheduled-for' ||
               activeEl.id === 'msg-cron' ||
               activeEl.id === 'msg-schedule-checkbox'
+            );
+            var isInteractingWithOptions = activeEl && (
+              activeEl.id === 'conv-new-dir' ||
+              activeEl.id === 'conv-new-tool'
             );
 
             // Preserve input value before re-render
@@ -1271,8 +1807,8 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             const conv = await res.json();
             var newMessageCount = conv.messages ? conv.messages.length : 0;
 
-            // If user is interacting with scheduling form, only update messages
-            if (isInteractingWithSchedule && messagesEl) {
+            // If user is interacting with scheduling form or options, only update messages
+            if ((isInteractingWithSchedule || isInteractingWithOptions) && messagesEl) {
               // Just update messages without full re-render
               var newMessagesHtml = '';
               if (conv.messages && conv.messages.length > 0) {
@@ -1290,7 +1826,40 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
               return;
             }
 
+            // Save options input values before re-render
+            var savedNewDir = document.getElementById('conv-new-dir');
+            var savedNewDirValue = savedNewDir ? savedNewDir.value : '';
+            var savedNewTool = document.getElementById('conv-new-tool');
+            var savedNewToolValue = savedNewTool ? savedNewTool.value : '';
+
             renderConversation(conv);
+
+            // Only reload options if the panel isn't open (user not editing)
+            if (!optionsPanelOpen) {
+              loadConvOptions(conv);
+            } else {
+              // Just re-render the current state
+              renderConvDirectories();
+              renderConvCustomTools();
+            }
+
+            // Restore options panel state
+            if (optionsPanelOpen) {
+              var content = document.getElementById('options-content');
+              var btn = document.getElementById('options-toggle-btn');
+              if (content) content.classList.add('open');
+              if (btn) btn.textContent = 'Hide';
+            }
+
+            // Restore options input values
+            var newDirInput = document.getElementById('conv-new-dir');
+            if (newDirInput && savedNewDirValue) {
+              newDirInput.value = savedNewDirValue;
+            }
+            var newToolInput = document.getElementById('conv-new-tool');
+            if (newToolInput && savedNewToolValue) {
+              newToolInput.value = savedNewToolValue;
+            }
 
             // Restore scroll position
             var newMessagesEl = document.getElementById('messages');
@@ -1360,7 +1929,59 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           if (conv.cwd) {
             html += '<div class="info-item"><div class="info-label">Working Directory</div><div class="info-value" style="font-size:12px;word-break:break-all;">' + escapeHtml(conv.cwd) + '</div></div>';
           }
-          html += '</div></div>';
+          html += '</div>';
+
+          // Conversation Options section
+          html += '<div class="conv-options">';
+          html += '<div class="conv-options-header" onclick="toggleOptionsPanel()">';
+          html += '<h3>Conversation Options</h3>';
+          html += '<button type="button" class="conv-options-toggle" id="options-toggle-btn">Show</button>';
+          html += '</div>';
+          html += '<div class="conv-options-content" id="options-content">';
+
+          // Additional Directories
+          html += '<div class="form-group">';
+          html += '<label>Additional Directories</label>';
+          html += '<div class="dir-list" id="conv-dirs-list"></div>';
+          html += '<div class="add-row">';
+          html += '<input type="text" id="conv-new-dir" placeholder="/path/to/directory" />';
+          html += '<button type="button" onclick="addConvDirectory()">Add</button>';
+          html += '</div>';
+          html += '<small>Directories Claude can access beyond the working directory</small>';
+          html += '</div>';
+
+          // Allowed Tools
+          html += '<div class="form-group">';
+          html += '<label>Common Tools</label>';
+          html += '<div class="tools-checkboxes" id="conv-tools-checkboxes">';
+          html += '<label class="checkbox-label"><input type="checkbox" value="Read" /> Read</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="Edit" /> Edit</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="Write" /> Write</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="Glob" /> Glob</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="Grep" /> Grep</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="Bash" /> Bash</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="Task" /> Task</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="WebFetch" /> WebFetch</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="WebSearch" /> WebSearch</label>';
+          html += '<label class="checkbox-label"><input type="checkbox" value="NotebookEdit" /> NotebookEdit</label>';
+          html += '</div>';
+          html += '</div>';
+
+          html += '<div class="form-group">';
+          html += '<label>Custom Tools</label>';
+          html += '<div class="dir-list" id="conv-custom-tools-list"></div>';
+          html += '<div class="add-row">';
+          html += '<input type="text" id="conv-new-tool" placeholder="Bash:*, mcp__notion__*, etc." />';
+          html += '<button type="button" onclick="addConvTool()">Add</button>';
+          html += '</div>';
+          html += '<small>Add custom tools like Bash:*, mcp__notion__notion-search, etc.</small>';
+          html += '</div>';
+
+          html += '<button type="button" class="save-btn" id="save-options-btn" onclick="saveConvOptions()">Save Options</button>';
+          html += '</div>';
+          html += '</div>';
+
+          html += '</div>';
 
           html += '<div class="conversation"><h2>Messages</h2>';
 
@@ -1432,6 +2053,154 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           var div = document.createElement('div');
           div.textContent = text;
           return div.innerHTML;
+        }
+
+        // Conversation options state
+        var convDirectories = [];
+        var convCustomTools = [];
+        var optionsPanelOpen = false;
+        var convCommonToolsList = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash', 'Task', 'WebFetch', 'WebSearch', 'NotebookEdit'];
+
+        function toggleOptionsPanel() {
+          optionsPanelOpen = !optionsPanelOpen;
+          var content = document.getElementById('options-content');
+          var btn = document.getElementById('options-toggle-btn');
+          if (optionsPanelOpen) {
+            content.classList.add('open');
+            btn.textContent = 'Hide';
+          } else {
+            content.classList.remove('open');
+            btn.textContent = 'Show';
+          }
+        }
+
+        function loadConvOptions(conv) {
+          convDirectories = [];
+          convCustomTools = [];
+          var tools = [];
+          if (conv.queryOptions) {
+            try {
+              var opts = JSON.parse(conv.queryOptions);
+              if (opts.additionalDirectories) {
+                convDirectories = opts.additionalDirectories;
+              }
+              if (opts.allowedTools) {
+                tools = opts.allowedTools;
+              }
+            } catch (e) {}
+          }
+          renderConvDirectories();
+          setConvToolCheckboxes(tools);
+        }
+
+        function setConvToolCheckboxes(tools) {
+          var checkboxes = document.querySelectorAll('#conv-tools-checkboxes input[type="checkbox"]');
+          convCustomTools = [];
+          checkboxes.forEach(function(cb) {
+            cb.checked = tools.indexOf(cb.value) !== -1;
+          });
+          // Extract custom tools (not in common list)
+          tools.forEach(function(tool) {
+            if (convCommonToolsList.indexOf(tool) === -1) {
+              convCustomTools.push(tool);
+            }
+          });
+          renderConvCustomTools();
+        }
+
+        function getConvAllTools() {
+          var checkboxes = document.querySelectorAll('#conv-tools-checkboxes input[type="checkbox"]:checked');
+          var tools = Array.from(checkboxes).map(function(cb) { return cb.value; });
+          return tools.concat(convCustomTools);
+        }
+
+        function renderConvDirectories() {
+          var container = document.getElementById('conv-dirs-list');
+          if (!container) return;
+          var html = '';
+          convDirectories.forEach(function(dir, idx) {
+            html += '<span class="dir-tag">' + escapeHtml(dir) + '<button type="button" onclick="removeConvDirectory(' + idx + ')">×</button></span>';
+          });
+          container.innerHTML = html;
+        }
+
+        function addConvDirectory() {
+          var input = document.getElementById('conv-new-dir');
+          var dir = input.value.trim();
+          if (!dir) return;
+          if (convDirectories.indexOf(dir) === -1) {
+            convDirectories.push(dir);
+            renderConvDirectories();
+          }
+          input.value = '';
+        }
+
+        function removeConvDirectory(idx) {
+          convDirectories.splice(idx, 1);
+          renderConvDirectories();
+        }
+
+        function renderConvCustomTools() {
+          var container = document.getElementById('conv-custom-tools-list');
+          if (!container) return;
+          var html = '';
+          convCustomTools.forEach(function(tool, idx) {
+            html += '<span class="tool-tag">' + escapeHtml(tool) + '<button type="button" onclick="removeConvTool(' + idx + ')">×</button></span>';
+          });
+          container.innerHTML = html;
+        }
+
+        function addConvTool() {
+          var input = document.getElementById('conv-new-tool');
+          var tool = input.value.trim();
+          if (!tool) return;
+          // Don't add if it's a common tool (should use checkbox) or already exists
+          if (convCommonToolsList.indexOf(tool) !== -1) {
+            alert('Use the checkbox above for common tools');
+            return;
+          }
+          if (convCustomTools.indexOf(tool) === -1) {
+            convCustomTools.push(tool);
+            renderConvCustomTools();
+          }
+          input.value = '';
+        }
+
+        function removeConvTool(idx) {
+          convCustomTools.splice(idx, 1);
+          renderConvCustomTools();
+        }
+
+        async function saveConvOptions() {
+          var btn = document.getElementById('save-options-btn');
+          btn.disabled = true;
+          btn.textContent = 'Saving...';
+
+          var allTools = getConvAllTools();
+
+          try {
+            var res = await fetch('/api/conversations/' + conversationId + '/options', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                additionalDirectories: convDirectories.length > 0 ? convDirectories : null,
+                allowedTools: allTools.length > 0 ? allTools : null
+              })
+            });
+            if (!res.ok) {
+              var err = await res.json();
+              throw new Error(err.error || 'Failed to save');
+            }
+            btn.textContent = 'Saved!';
+            setTimeout(function() {
+              btn.textContent = 'Save Options';
+              btn.disabled = false;
+            }, 1500);
+          } catch (e) {
+            alert('Error: ' + e.message);
+            btn.textContent = 'Save Options';
+            btn.disabled = false;
+          }
         }
 
         function onMsgScheduleChange() {
@@ -1756,6 +2525,15 @@ app.post("/api/conversations", async (c) => {
     }
   }
 
+  // Build query options if provided
+  let queryOptions: string | undefined;
+  if (body.additionalDirectories || body.allowedTools) {
+    queryOptions = JSON.stringify({
+      additionalDirectories: body.additionalDirectories,
+      allowedTools: body.allowedTools,
+    });
+  }
+
   // Create conversation with workspace info
   const conversation = await prisma.conversation.create({
     data: {
@@ -1764,6 +2542,7 @@ app.post("/api/conversations", async (c) => {
       workspaceId,
       worktreePath,
       worktreeBranch,
+      queryOptions,
     },
   });
 
@@ -1796,6 +2575,56 @@ app.get("/api/conversations/:id", async (c) => {
   }
 
   return c.json(conversation);
+});
+
+// Update conversation options
+app.patch("/api/conversations/:id/options", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json();
+
+  const conversation = await getConversation(id);
+  if (!conversation) {
+    return c.json({ error: "Conversation not found" }, 404);
+  }
+
+  // Parse existing options
+  let existingOptions: Record<string, unknown> = {};
+  if (conversation.queryOptions) {
+    try {
+      existingOptions = JSON.parse(conversation.queryOptions);
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // Merge with new options
+  const newOptions: Record<string, unknown> = { ...existingOptions };
+
+  if (body.additionalDirectories !== undefined) {
+    if (body.additionalDirectories === null || (Array.isArray(body.additionalDirectories) && body.additionalDirectories.length === 0)) {
+      delete newOptions.additionalDirectories;
+    } else {
+      newOptions.additionalDirectories = body.additionalDirectories;
+    }
+  }
+
+  if (body.allowedTools !== undefined) {
+    if (body.allowedTools === null || (Array.isArray(body.allowedTools) && body.allowedTools.length === 0)) {
+      delete newOptions.allowedTools;
+    } else {
+      newOptions.allowedTools = body.allowedTools;
+    }
+  }
+
+  // Update the conversation
+  const updated = await prisma.conversation.update({
+    where: { id },
+    data: {
+      queryOptions: Object.keys(newOptions).length > 0 ? JSON.stringify(newOptions) : null,
+    },
+  });
+
+  return c.json(updated);
 });
 
 // Send a message to a conversation (with optional scheduling)
@@ -1872,6 +2701,115 @@ app.delete("/api/workspaces/:id", async (c) => {
   try {
     const workspace = await deleteWorkspace(id);
     return c.json(workspace);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// ============ Toolset API ============
+
+// Get all toolsets
+app.get("/api/toolsets", async (c) => {
+  const toolsets = await prisma.toolset.findMany({
+    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+  });
+  return c.json(toolsets);
+});
+
+// Create a new toolset
+app.post("/api/toolsets", async (c) => {
+  const body = await c.req.json();
+
+  if (!body.name || !body.tools) {
+    return c.json({ error: "Name and tools are required" }, 400);
+  }
+
+  if (!Array.isArray(body.tools) || body.tools.length === 0) {
+    return c.json({ error: "Tools must be a non-empty array" }, 400);
+  }
+
+  try {
+    // If this is set as default, unset other defaults first
+    if (body.isDefault) {
+      await prisma.toolset.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    const toolset = await prisma.toolset.create({
+      data: {
+        name: body.name,
+        tools: JSON.stringify(body.tools),
+        isDefault: body.isDefault || false,
+      },
+    });
+    return c.json(toolset, 201);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Update a toolset
+app.put("/api/toolsets/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json();
+
+  try {
+    // If setting this as default, unset other defaults first
+    if (body.isDefault) {
+      await prisma.toolset.updateMany({
+        where: { isDefault: true, id: { not: id } },
+        data: { isDefault: false },
+      });
+    }
+
+    const data: { name?: string; tools?: string; isDefault?: boolean } = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.tools !== undefined) data.tools = JSON.stringify(body.tools);
+    if (body.isDefault !== undefined) data.isDefault = body.isDefault;
+
+    const toolset = await prisma.toolset.update({
+      where: { id },
+      data,
+    });
+    return c.json(toolset);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Delete a toolset
+app.delete("/api/toolsets/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+
+  try {
+    const toolset = await prisma.toolset.delete({
+      where: { id },
+    });
+    return c.json(toolset);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Set a toolset as default
+app.post("/api/toolsets/:id/set-default", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+
+  try {
+    // Unset all defaults first
+    await prisma.toolset.updateMany({
+      where: { isDefault: true },
+      data: { isDefault: false },
+    });
+
+    // Set this one as default
+    const toolset = await prisma.toolset.update({
+      where: { id },
+      data: { isDefault: true },
+    });
+    return c.json(toolset);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
   }

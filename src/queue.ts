@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
 import { CronExpressionParser } from "cron-parser";
 
@@ -6,6 +6,92 @@ const adapter = new PrismaLibSql({
   url: "file:./dev.db",
 });
 const prisma = new PrismaClient({ adapter });
+
+/**
+ * Retry a Prisma operation with exponential backoff
+ * Handles transient errors like timeouts and connection issues
+ */
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: {
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    operationName?: string;
+  } = {}
+): Promise<T> {
+  const maxAttempts = options.maxAttempts ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? 100;
+  const maxDelayMs = options.maxDelayMs ?? 5000;
+  const operationName = options.operationName ?? "Prisma operation";
+
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Check if this is a retryable Prisma error
+      const isRetryable = isPrismaRetryableError(error);
+
+      if (!isRetryable || attempt === maxAttempts) {
+        throw lastError;
+      }
+
+      // Calculate delay with exponential backoff and jitter
+      const delay = Math.min(
+        baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 100,
+        maxDelayMs
+      );
+
+      console.warn(
+        `${operationName} failed (attempt ${attempt}/${maxAttempts}): ${lastError.message}. Retrying in ${Math.round(delay)}ms...`
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Check if a Prisma error is retryable (transient)
+ */
+function isPrismaRetryableError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    // P1008: Operations timed out
+    // P1017: Server has closed the connection
+    // P2024: Timed out fetching a new connection from the connection pool
+    const retryableCodes = ["P1008", "P1017", "P2024"];
+    return retryableCodes.includes(error.code);
+  }
+
+  if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+    // Check for timeout-related messages
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("timeout") ||
+      message.includes("timed out") ||
+      message.includes("socket") ||
+      message.includes("connection")
+    );
+  }
+
+  // Check for generic timeout errors
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("timeout") ||
+      message.includes("timed out") ||
+      message.includes("sockettimeout")
+    );
+  }
+
+  return false;
+}
 
 export type JobStatus = "scheduled" | "pending" | "processing" | "completed" | "failed";
 
@@ -188,35 +274,44 @@ export async function dequeue(queue = "default"): Promise<Job | null> {
  * Mark a job as completed
  */
 export async function ack(jobId: number): Promise<Job> {
-  return prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: "completed",
-      completedAt: new Date(),
-    },
-  });
+  return withRetry(
+    () =>
+      prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: "completed",
+          completedAt: new Date(),
+        },
+      }),
+    { operationName: `ack(job ${jobId})` }
+  );
 }
 
 /**
  * Mark a job as failed, with optional retry
  */
 export async function fail(jobId: number, error: string): Promise<Job> {
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  return withRetry(
+    async () => {
+      const job = await prisma.job.findUnique({ where: { id: jobId } });
 
-  if (!job) {
-    throw new Error(`Job ${jobId} not found`);
-  }
+      if (!job) {
+        throw new Error(`Job ${jobId} not found`);
+      }
 
-  const shouldRetry = job.attempts < job.maxAttempts;
+      const shouldRetry = job.attempts < job.maxAttempts;
 
-  return prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: shouldRetry ? "pending" : "failed",
-      error,
-      processedAt: null, // Reset for retry
+      return prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: shouldRetry ? "pending" : "failed",
+          error,
+          processedAt: null, // Reset for retry
+        },
+      });
     },
-  });
+    { operationName: `fail(job ${jobId})` }
+  );
 }
 
 /**

@@ -2,14 +2,141 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
 import { CronExpressionParser } from "cron-parser";
 
-const adapter = new PrismaLibSql({
-  url: "file:./dev.db",
-});
-const prisma = new PrismaClient({ adapter });
+/**
+ * Create a new Prisma client with the libsql adapter
+ */
+function createPrismaClient(): PrismaClient {
+  const adapter = new PrismaLibSql({
+    url: "file:./dev.db",
+  });
+  return new PrismaClient({ adapter });
+}
+
+let prisma = createPrismaClient();
+
+// Reconnection state management
+let isReconnecting = false;
+let reconnectPromise: Promise<void> | null = null;
+let lastSuccessfulQuery = Date.now();
+
+/**
+ * Reconnect to the database by creating a fresh Prisma client
+ * Uses a mutex to prevent multiple simultaneous reconnections
+ */
+async function reconnectPrisma(): Promise<void> {
+  // If already reconnecting, wait for that to complete
+  if (isReconnecting && reconnectPromise) {
+    console.log("Reconnection already in progress, waiting...");
+    await reconnectPromise;
+    return;
+  }
+
+  isReconnecting = true;
+  reconnectPromise = (async () => {
+    console.log("Reconnecting Prisma client due to stale connection...");
+    try {
+      await prisma.$disconnect();
+    } catch {
+      // Ignore disconnect errors - the connection may already be dead
+    }
+
+    // Small delay before creating new client to let resources clean up
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    prisma = createPrismaClient();
+
+    // Verify the new connection works with a simple query
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      console.log("Prisma client reconnected and verified successfully");
+      lastSuccessfulQuery = Date.now();
+    } catch (verifyError) {
+      console.warn("Reconnection verification failed, will retry on next operation:", verifyError);
+    }
+  })();
+
+  try {
+    await reconnectPromise;
+  } finally {
+    isReconnecting = false;
+    reconnectPromise = null;
+  }
+}
+
+/**
+ * Periodic health check to keep the connection alive
+ * This prevents the connection from going stale during idle periods
+ */
+const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
+const CONNECTION_IDLE_THRESHOLD = 60000; // 1 minute
+
+async function healthCheck(): Promise<void> {
+  const timeSinceLastQuery = Date.now() - lastSuccessfulQuery;
+
+  // Only ping if connection has been idle
+  if (timeSinceLastQuery > CONNECTION_IDLE_THRESHOLD) {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      lastSuccessfulQuery = Date.now();
+    } catch (error) {
+      console.warn("Health check failed, reconnecting...");
+      await reconnectPrisma();
+    }
+  }
+}
+
+// Start the health check interval
+setInterval(healthCheck, HEALTH_CHECK_INTERVAL);
+
+/**
+ * Check if an error indicates a stale/dead connection that needs reconnection
+ */
+function isConnectionError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    // P1008: Operations timed out - connection may be stale
+    // P1017: Server has closed the connection
+    if (error.code === "P1008" || error.code === "P1017") {
+      // Check for socket-related errors in the meta
+      // The driverAdapterError could be an Error object or have a message property
+      const meta = error.meta as { driverAdapterError?: Error | { message?: string } } | undefined;
+      if (meta?.driverAdapterError) {
+        const adapterError = meta.driverAdapterError;
+        // Check the string representation of the error object
+        const errorStr = String(adapterError);
+        if (errorStr.includes("SocketTimeout") || errorStr.includes("socket")) {
+          return true;
+        }
+        // Also check if it's an Error with a message
+        if (adapterError instanceof Error && adapterError.message) {
+          if (adapterError.message.toLowerCase().includes("socket")) {
+            return true;
+          }
+        }
+      }
+      // Also check the main error message
+      if (error.message.toLowerCase().includes("socket")) {
+        return true;
+      }
+      // P1008 timeout errors are generally connection-related with libsql
+      return true;
+    }
+  }
+
+  // Check for generic socket timeout errors
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    if (message.includes("sockettimeout") || message.includes("socket timeout")) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 /**
  * Retry a Prisma operation with exponential backoff
  * Handles transient errors like timeouts and connection issues
+ * Automatically reconnects on stale connection errors
  */
 export async function withRetry<T>(
   operation: () => Promise<T>,
@@ -20,18 +147,36 @@ export async function withRetry<T>(
     operationName?: string;
   } = {}
 ): Promise<T> {
-  const maxAttempts = options.maxAttempts ?? 3;
-  const baseDelayMs = options.baseDelayMs ?? 100;
+  const maxAttempts = options.maxAttempts ?? 5; // Increased from 3 for better resilience
+  const baseDelayMs = options.baseDelayMs ?? 200; // Increased base delay
   const maxDelayMs = options.maxDelayMs ?? 5000;
   const operationName = options.operationName ?? "Prisma operation";
 
   let lastError: Error | undefined;
+  let hasReconnected = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await operation();
+      const result = await operation();
+      // Track successful query
+      lastSuccessfulQuery = Date.now();
+      return result;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Check if this is a connection error that requires reconnection
+      if (isConnectionError(error) && !hasReconnected) {
+        console.warn(
+          `${operationName} failed with connection error (attempt ${attempt}/${maxAttempts}): ${lastError.message}. Reconnecting...`
+        );
+        await reconnectPrisma();
+        hasReconnected = true;
+        // Add a delay after reconnection to let the new connection stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        // Don't increment attempt count for reconnection
+        attempt--;
+        continue;
+      }
 
       // Check if this is a retryable Prisma error
       const isRetryable = isPrismaRetryableError(error);
@@ -153,15 +298,17 @@ export async function enqueue<T extends object>(
   payload: T,
   options: EnqueueOptions = {}
 ): Promise<Job> {
-  const job = await prisma.job.create({
-    data: {
-      payload: JSON.stringify(payload),
-      queue: options.queue ?? "default",
-      priority: options.priority ?? 0,
-      maxAttempts: options.maxAttempts ?? 3,
-    },
-  });
-  return job;
+  return withRetry(
+    () => prisma.job.create({
+      data: {
+        payload: JSON.stringify(payload),
+        queue: options.queue ?? "default",
+        priority: options.priority ?? 0,
+        maxAttempts: options.maxAttempts ?? 3,
+      },
+    }),
+    { operationName: "enqueue" }
+  );
 }
 
 /**
@@ -172,17 +319,19 @@ export async function scheduleJob<T extends object>(
   scheduledFor: Date,
   options: EnqueueOptions = {}
 ): Promise<Job> {
-  const job = await prisma.job.create({
-    data: {
-      payload: JSON.stringify(payload),
-      queue: options.queue ?? "default",
-      priority: options.priority ?? 0,
-      maxAttempts: options.maxAttempts ?? 3,
-      status: "scheduled",
-      scheduledFor,
-    },
-  });
-  return job;
+  return withRetry(
+    () => prisma.job.create({
+      data: {
+        payload: JSON.stringify(payload),
+        queue: options.queue ?? "default",
+        priority: options.priority ?? 0,
+        maxAttempts: options.maxAttempts ?? 3,
+        status: "scheduled",
+        scheduledFor,
+      },
+    }),
+    { operationName: "scheduleJob" }
+  );
 }
 
 /**
@@ -199,19 +348,21 @@ export async function scheduleRecurringJob<T extends object>(
 
   const nextRunAt = getNextCronTime(cronExpression);
 
-  const job = await prisma.job.create({
-    data: {
-      payload: JSON.stringify(payload),
-      queue: options.queue ?? "default",
-      priority: options.priority ?? 0,
-      maxAttempts: options.maxAttempts ?? 3,
-      status: "scheduled",
-      isRecurring: true,
-      cronExpression,
-      nextRunAt,
-    },
-  });
-  return job;
+  return withRetry(
+    () => prisma.job.create({
+      data: {
+        payload: JSON.stringify(payload),
+        queue: options.queue ?? "default",
+        priority: options.priority ?? 0,
+        maxAttempts: options.maxAttempts ?? 3,
+        status: "scheduled",
+        isRecurring: true,
+        cronExpression,
+        nextRunAt,
+      },
+    }),
+    { operationName: "scheduleRecurringJob" }
+  );
 }
 
 /**
@@ -348,11 +499,14 @@ export async function getStats(queue = "default") {
  * Get recent jobs from the queue
  */
 export async function getJobs(queue = "default", limit = 50): Promise<Job[]> {
-  return prisma.job.findMany({
-    where: { queue },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-  });
+  return withRetry(
+    () => prisma.job.findMany({
+      where: { queue },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    }),
+    { operationName: "getJobs" }
+  );
 }
 
 /**
@@ -361,16 +515,19 @@ export async function getJobs(queue = "default", limit = 50): Promise<Job[]> {
 export async function resetStaleJobs(maxAgeMs = 5 * 60 * 1000): Promise<number> {
   const cutoff = new Date(Date.now() - maxAgeMs);
 
-  const result = await prisma.job.updateMany({
-    where: {
-      status: "processing",
-      processedAt: { lt: cutoff },
-    },
-    data: {
-      status: "pending",
-      processedAt: null,
-    },
-  });
+  const result = await withRetry(
+    () => prisma.job.updateMany({
+      where: {
+        status: "processing",
+        processedAt: { lt: cutoff },
+      },
+      data: {
+        status: "pending",
+        processedAt: null,
+      },
+    }),
+    { operationName: "resetStaleJobs" }
+  );
 
   return result.count;
 }
@@ -381,12 +538,15 @@ export async function resetStaleJobs(maxAgeMs = 5 * 60 * 1000): Promise<number> 
 export async function cleanup(maxAgeMs = 24 * 60 * 60 * 1000): Promise<number> {
   const cutoff = new Date(Date.now() - maxAgeMs);
 
-  const result = await prisma.job.deleteMany({
-    where: {
-      status: { in: ["completed", "failed"] },
-      completedAt: { lt: cutoff },
-    },
-  });
+  const result = await withRetry(
+    () => prisma.job.deleteMany({
+      where: {
+        status: { in: ["completed", "failed"] },
+        completedAt: { lt: cutoff },
+      },
+    }),
+    { operationName: "cleanup" }
+  );
 
   return result.count;
 }
@@ -494,100 +654,121 @@ export async function processScheduledJobs(): Promise<{ promoted: number; spawne
  * Get all recurring jobs
  */
 export async function getRecurringJobs(queue = "default"): Promise<Job[]> {
-  return prisma.job.findMany({
-    where: {
-      queue,
-      isRecurring: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  return withRetry(
+    () => prisma.job.findMany({
+      where: {
+        queue,
+        isRecurring: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    { operationName: "getRecurringJobs" }
+  );
 }
 
 /**
  * Get all scheduled (one-time) jobs
  */
 export async function getScheduledJobs(queue = "default"): Promise<Job[]> {
-  return prisma.job.findMany({
-    where: {
-      queue,
-      status: "scheduled",
-      isRecurring: false,
-    },
-    orderBy: { scheduledFor: "asc" },
-  });
+  return withRetry(
+    () => prisma.job.findMany({
+      where: {
+        queue,
+        status: "scheduled",
+        isRecurring: false,
+      },
+      orderBy: { scheduledFor: "asc" },
+    }),
+    { operationName: "getScheduledJobs" }
+  );
 }
 
 /**
  * Cancel a scheduled or recurring job
  */
 export async function cancelScheduledJob(jobId: number): Promise<Job> {
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  return withRetry(
+    async () => {
+      const job = await prisma.job.findUnique({ where: { id: jobId } });
 
-  if (!job) {
-    throw new Error(`Job ${jobId} not found`);
-  }
+      if (!job) {
+        throw new Error(`Job ${jobId} not found`);
+      }
 
-  if (job.status !== "scheduled") {
-    throw new Error(`Job ${jobId} is not scheduled (status: ${job.status})`);
-  }
+      if (job.status !== "scheduled") {
+        throw new Error(`Job ${jobId} is not scheduled (status: ${job.status})`);
+      }
 
-  return prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: "failed",
-      error: "Cancelled",
-      completedAt: new Date(),
+      return prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          error: "Cancelled",
+          completedAt: new Date(),
+        },
+      });
     },
-  });
+    { operationName: `cancelScheduledJob(${jobId})` }
+  );
 }
 
 /**
  * Pause a recurring job
  */
 export async function pauseRecurringJob(jobId: number): Promise<Job> {
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  return withRetry(
+    async () => {
+      const job = await prisma.job.findUnique({ where: { id: jobId } });
 
-  if (!job) {
-    throw new Error(`Job ${jobId} not found`);
-  }
+      if (!job) {
+        throw new Error(`Job ${jobId} not found`);
+      }
 
-  if (!job.isRecurring) {
-    throw new Error(`Job ${jobId} is not a recurring job`);
-  }
+      if (!job.isRecurring) {
+        throw new Error(`Job ${jobId} is not a recurring job`);
+      }
 
-  return prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: "failed",
-      error: "Paused",
+      return prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: "failed",
+          error: "Paused",
+        },
+      });
     },
-  });
+    { operationName: `pauseRecurringJob(${jobId})` }
+  );
 }
 
 /**
  * Resume a paused recurring job
  */
 export async function resumeRecurringJob(jobId: number): Promise<Job> {
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  return withRetry(
+    async () => {
+      const job = await prisma.job.findUnique({ where: { id: jobId } });
 
-  if (!job) {
-    throw new Error(`Job ${jobId} not found`);
-  }
+      if (!job) {
+        throw new Error(`Job ${jobId} not found`);
+      }
 
-  if (!job.isRecurring) {
-    throw new Error(`Job ${jobId} is not a recurring job`);
-  }
+      if (!job.isRecurring) {
+        throw new Error(`Job ${jobId} is not a recurring job`);
+      }
 
-  const nextRunAt = getNextCronTime(job.cronExpression!);
+      const nextRunAt = getNextCronTime(job.cronExpression!);
 
-  return prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: "scheduled",
-      error: null,
-      nextRunAt,
+      return prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status: "scheduled",
+          error: null,
+          nextRunAt,
+        },
+      });
     },
-  });
+    { operationName: `resumeRecurringJob(${jobId})` }
+  );
 }
 
 // ============ Conversation Functions ============
@@ -618,12 +799,15 @@ export async function createConversation(options: {
   title?: string;
   cwd?: string;
 }): Promise<Conversation> {
-  return prisma.conversation.create({
-    data: {
-      title: options.title,
-      cwd: options.cwd,
-    },
-  });
+  return withRetry(
+    () => prisma.conversation.create({
+      data: {
+        title: options.title,
+        cwd: options.cwd,
+      },
+    }),
+    { operationName: "createConversation" }
+  );
 }
 
 /**
@@ -683,55 +867,63 @@ export async function sendMessage(
     cronExpression?: string;
   }
 ): Promise<Job> {
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-  });
+  return withRetry(
+    async () => {
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+      });
 
-  if (!conversation) {
-    throw new Error(`Conversation ${conversationId} not found`);
-  }
+      if (!conversation) {
+        throw new Error(`Conversation ${conversationId} not found`);
+      }
 
-  // Determine status and scheduling
-  let status = "pending";
-  let nextRunAt: Date | null = null;
+      // Determine status and scheduling
+      let status = "pending";
+      let nextRunAt: Date | null = null;
 
-  if (options?.cronExpression) {
-    status = "scheduled";
-    nextRunAt = getNextCronTime(options.cronExpression);
-  } else if (options?.scheduledFor) {
-    status = "scheduled";
-  }
+      if (options?.cronExpression) {
+        status = "scheduled";
+        nextRunAt = getNextCronTime(options.cronExpression);
+      } else if (options?.scheduledFor) {
+        status = "scheduled";
+      }
 
-  // Create a job to process this message
-  const job = await prisma.job.create({
-    data: {
-      payload: JSON.stringify({
-        jobClass: "ConversationMessageJob",
-        args: { conversationId, message },
-      }),
-      queue: "default",
-      priority: 0,
-      maxAttempts: 3,
-      conversationId,
-      status,
-      scheduledFor: options?.scheduledFor,
-      isRecurring: !!options?.cronExpression,
-      cronExpression: options?.cronExpression,
-      nextRunAt,
+      // Create a job to process this message
+      const job = await prisma.job.create({
+        data: {
+          payload: JSON.stringify({
+            jobClass: "ConversationMessageJob",
+            args: { conversationId, message },
+          }),
+          queue: "default",
+          priority: 0,
+          maxAttempts: 3,
+          conversationId,
+          status,
+          scheduledFor: options?.scheduledFor,
+          isRecurring: !!options?.cronExpression,
+          cronExpression: options?.cronExpression,
+          nextRunAt,
+        },
+      });
+
+      return job;
     },
-  });
-
-  return job;
+    { operationName: `sendMessage(conversation=${conversationId})` }
+  );
 }
 
 /**
  * Close a conversation
  */
 export async function closeConversation(id: number): Promise<Conversation> {
-  return prisma.conversation.update({
-    where: { id },
-    data: { status: "closed" },
-  });
+  return withRetry(
+    () => prisma.conversation.update({
+      where: { id },
+      data: { status: "closed" },
+    }),
+    { operationName: `closeConversation(${id})` }
+  );
 }
 
 // ============ Workspace Functions ============
@@ -747,36 +939,48 @@ export interface Workspace {
  * Create a new workspace
  */
 export async function createWorkspace(name: string, path: string): Promise<Workspace> {
-  return prisma.workspace.create({
-    data: { name, path },
-  });
+  return withRetry(
+    () => prisma.workspace.create({
+      data: { name, path },
+    }),
+    { operationName: "createWorkspace" }
+  );
 }
 
 /**
  * Get all workspaces
  */
 export async function getWorkspaces(): Promise<Workspace[]> {
-  return prisma.workspace.findMany({
-    orderBy: { name: "asc" },
-  });
+  return withRetry(
+    () => prisma.workspace.findMany({
+      orderBy: { name: "asc" },
+    }),
+    { operationName: "getWorkspaces" }
+  );
 }
 
 /**
  * Get a workspace by ID
  */
 export async function getWorkspace(id: number): Promise<Workspace | null> {
-  return prisma.workspace.findUnique({
-    where: { id },
-  });
+  return withRetry(
+    () => prisma.workspace.findUnique({
+      where: { id },
+    }),
+    { operationName: `getWorkspace(${id})` }
+  );
 }
 
 /**
  * Delete a workspace
  */
 export async function deleteWorkspace(id: number): Promise<Workspace> {
-  return prisma.workspace.delete({
-    where: { id },
-  });
+  return withRetry(
+    () => prisma.workspace.delete({
+      where: { id },
+    }),
+    { operationName: `deleteWorkspace(${id})` }
+  );
 }
 
 /**
@@ -822,4 +1026,4 @@ export async function removeWorktree(
   });
 }
 
-export { prisma };
+export { prisma, reconnectPrisma };

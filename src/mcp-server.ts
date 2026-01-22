@@ -28,6 +28,16 @@ import {
   getConversation,
   sendMessage,
   createWorktree,
+  getTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+  getToolsets,
+  getToolset,
+  createToolset,
+  updateToolset,
+  deleteToolset,
 } from "./queue";
 import {
   getRegisteredJobs,
@@ -652,6 +662,521 @@ server.registerTool(
   }
 );
 
+// ============ Toolset Tools ============
+
+// Tool: List toolsets
+server.registerTool(
+  "list_toolsets",
+  {
+    description: "List all toolsets (saved tool configurations)",
+  },
+  async () => {
+    const toolsets = await getToolsets();
+
+    if (toolsets.length === 0) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "No toolsets found. Create one with create_toolset.",
+          },
+        ],
+      };
+    }
+
+    const result = toolsets.map((t) => ({
+      id: t.id,
+      name: t.name,
+      tools: JSON.parse(t.tools),
+      isDefault: t.isDefault,
+      createdAt: t.createdAt,
+    }));
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Get toolset details
+server.registerTool(
+  "get_toolset",
+  {
+    description: "Get details of a specific toolset",
+    inputSchema: {
+      toolsetId: z.number().describe("The toolset ID to get"),
+    },
+  },
+  async ({ toolsetId }) => {
+    const toolset = await getToolset(toolsetId);
+
+    if (!toolset) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Toolset with ID ${toolsetId} not found`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            {
+              id: toolset.id,
+              name: toolset.name,
+              tools: JSON.parse(toolset.tools),
+              isDefault: toolset.isDefault,
+              createdAt: toolset.createdAt,
+              updatedAt: toolset.updatedAt,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Create toolset
+server.registerTool(
+  "create_toolset",
+  {
+    description: "Create a new toolset (saved tool configuration)",
+    inputSchema: {
+      name: z.string().describe("Unique name for this toolset"),
+      tools: z
+        .array(z.string())
+        .describe("Array of tool names (e.g., ['Read', 'Edit', 'Glob', 'Bash'])"),
+      isDefault: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Set as the default toolset (only one can be default)"),
+    },
+  },
+  async ({ name, tools, isDefault }) => {
+    try {
+      const toolset = await createToolset(name, tools, isDefault);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Toolset created successfully!\n\nID: ${toolset.id}\nName: ${toolset.name}\nTools: ${tools.join(", ")}${isDefault ? "\nDefault: Yes" : ""}`,
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isDuplicate = message.includes("Unique constraint");
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: isDuplicate
+              ? `Error: A toolset with name '${name}' already exists`
+              : `Error creating toolset: ${message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Update toolset
+server.registerTool(
+  "update_toolset",
+  {
+    description: "Update an existing toolset",
+    inputSchema: {
+      toolsetId: z.number().describe("The toolset ID to update"),
+      name: z.string().optional().describe("New name for the toolset"),
+      tools: z.array(z.string()).optional().describe("New array of tool names"),
+      isDefault: z.boolean().optional().describe("Set as the default toolset"),
+    },
+  },
+  async ({ toolsetId, name, tools, isDefault }) => {
+    try {
+      const toolset = await updateToolset(toolsetId, { name, tools, isDefault });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Toolset ${toolset.id} updated successfully!`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Delete toolset
+server.registerTool(
+  "delete_toolset",
+  {
+    description: "Delete a toolset",
+    inputSchema: {
+      toolsetId: z.number().describe("The toolset ID to delete"),
+    },
+  },
+  async ({ toolsetId }) => {
+    try {
+      await deleteToolset(toolsetId);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Toolset ${toolsetId} deleted successfully`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============ Template Tools ============
+
+// Tool: List templates
+server.registerTool(
+  "list_templates",
+  {
+    description: "List all conversation templates (saved conversation presets)",
+  },
+  async () => {
+    const templates = await getTemplates();
+
+    if (templates.length === 0) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "No templates found. Create one with create_template.",
+          },
+        ],
+      };
+    }
+
+    const result = templates.map((t) => {
+      const tWithRelations = t as { workspace?: { name: string }; toolset?: { name: string } };
+      return {
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        workspace: tWithRelations.workspace?.name || null,
+        toolset: tWithRelations.toolset?.name || null,
+        useWorktree: t.useWorktree,
+        hasInitialMessage: !!t.initialMessage,
+        createdAt: t.createdAt,
+      };
+    });
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Get template details
+server.registerTool(
+  "get_template",
+  {
+    description: "Get full details of a conversation template",
+    inputSchema: {
+      templateId: z.number().describe("The template ID to get"),
+    },
+  },
+  async ({ templateId }) => {
+    const template = await getTemplate(templateId);
+
+    if (!template) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Template with ID ${templateId} not found`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const templateWithRelations = template as {
+      workspace?: { id: number; name: string; path: string };
+      toolset?: { id: number; name: string; tools: string };
+    };
+
+    const result = {
+      id: template.id,
+      name: template.name,
+      description: template.description,
+      title: template.title,
+      workspace: templateWithRelations.workspace || null,
+      useWorktree: template.useWorktree,
+      branchNamePattern: template.branchNamePattern,
+      toolset: templateWithRelations.toolset ? {
+        id: templateWithRelations.toolset.id,
+        name: templateWithRelations.toolset.name,
+        tools: JSON.parse(templateWithRelations.toolset.tools),
+      } : null,
+      allowedTools: template.allowedTools ? JSON.parse(template.allowedTools) : null,
+      additionalDirectories: template.additionalDirectories ? JSON.parse(template.additionalDirectories) : null,
+      initialMessage: template.initialMessage,
+      cronExpression: template.cronExpression,
+      createdAt: template.createdAt,
+      updatedAt: template.updatedAt,
+    };
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Create template
+server.registerTool(
+  "create_template",
+  {
+    description: "Create a conversation template to save and reuse conversation settings",
+    inputSchema: {
+      name: z.string().describe("Unique name for this template"),
+      description: z.string().optional().describe("Description of what this template is for"),
+      title: z.string().optional().describe("Default conversation title"),
+      workspaceId: z.number().optional().describe("Workspace ID to use"),
+      useWorktree: z.boolean().optional().default(false).describe("Create git worktree for conversations"),
+      branchNamePattern: z.string().optional().describe("Pattern for branch name, e.g., 'feature/{name}'"),
+      toolsetId: z.number().optional().describe("Toolset ID to use (get IDs from list_toolsets)"),
+      allowedTools: z.array(z.string()).optional().describe("Tools Claude is allowed to use (ignored if toolsetId is provided)"),
+      additionalDirectories: z.array(z.string()).optional().describe("Additional directories Claude can access"),
+      initialMessage: z.string().optional().describe("The prompt/message to start conversations with"),
+      cronExpression: z.string().optional().describe("Cron expression for recurring initial messages"),
+    },
+  },
+  async ({ name, description, title, workspaceId, useWorktree, branchNamePattern, toolsetId, allowedTools, additionalDirectories, initialMessage, cronExpression }) => {
+    // Validate cron expression if provided
+    if (cronExpression && !isValidCronExpression(cronExpression)) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: Invalid cron expression '${cronExpression}'`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Validate toolset if provided
+    if (toolsetId) {
+      const toolset = await getToolset(toolsetId);
+      if (!toolset) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: Toolset with ID ${toolsetId} not found`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+
+    try {
+      const template = await createTemplate({
+        name,
+        description,
+        title,
+        workspaceId,
+        useWorktree,
+        branchNamePattern,
+        toolsetId,
+        allowedTools,
+        additionalDirectories,
+        initialMessage,
+        cronExpression,
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Template created successfully!\n\nID: ${template.id}\nName: ${template.name}${description ? `\nDescription: ${description}` : ""}`,
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isDuplicate = message.includes("Unique constraint");
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: isDuplicate
+              ? `Error: A template with name '${name}' already exists`
+              : `Error creating template: ${message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Update template
+server.registerTool(
+  "update_template",
+  {
+    description: "Update an existing conversation template",
+    inputSchema: {
+      templateId: z.number().describe("The template ID to update"),
+      name: z.string().optional().describe("New name for the template"),
+      description: z.string().optional().describe("New description"),
+      title: z.string().optional().describe("New default conversation title"),
+      workspaceId: z.number().optional().describe("New workspace ID"),
+      useWorktree: z.boolean().optional().describe("Create git worktree for conversations"),
+      branchNamePattern: z.string().optional().describe("Pattern for branch name"),
+      toolsetId: z.number().optional().describe("Toolset ID to use"),
+      allowedTools: z.array(z.string()).optional().describe("Tools Claude is allowed to use"),
+      additionalDirectories: z.array(z.string()).optional().describe("Additional directories Claude can access"),
+      initialMessage: z.string().optional().describe("The prompt/message to start conversations with"),
+      cronExpression: z.string().optional().describe("Cron expression for recurring initial messages"),
+    },
+  },
+  async ({ templateId, ...updates }) => {
+    // Validate cron expression if provided
+    if (updates.cronExpression && !isValidCronExpression(updates.cronExpression)) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: Invalid cron expression '${updates.cronExpression}'`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Validate toolset if provided
+    if (updates.toolsetId) {
+      const toolset = await getToolset(updates.toolsetId);
+      if (!toolset) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: Toolset with ID ${updates.toolsetId} not found`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+
+    try {
+      const template = await updateTemplate(templateId, updates);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Template ${template.id} updated successfully!`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Delete template
+server.registerTool(
+  "delete_template",
+  {
+    description: "Delete a conversation template",
+    inputSchema: {
+      templateId: z.number().describe("The template ID to delete"),
+    },
+  },
+  async ({ templateId }) => {
+    try {
+      await deleteTemplate(templateId);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Template ${templateId} deleted successfully`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
 // ============ Conversation Tools ============
 
 // Tool: List conversations
@@ -712,12 +1237,16 @@ server.registerTool(
 server.registerTool(
   "create_conversation",
   {
-    description: "Create a new conversation and optionally send an initial message. Supports workspaces, git worktrees, and scheduling.",
+    description: "Create a new conversation and optionally send an initial message. Supports workspaces, git worktrees, scheduling, templates, and toolsets.",
     inputSchema: {
+      templateId: z
+        .number()
+        .optional()
+        .describe("Template ID to use as a base (get IDs from list_templates). Other parameters override template values."),
       message: z
         .string()
         .optional()
-        .describe("Initial message to send to the conversation"),
+        .describe("Initial message to send (overrides template's initialMessage)"),
       title: z
         .string()
         .optional()
@@ -729,7 +1258,6 @@ server.registerTool(
       useWorktree: z
         .boolean()
         .optional()
-        .default(false)
         .describe("Create a git worktree for this conversation (requires workspaceId)"),
       branchName: z
         .string()
@@ -751,13 +1279,78 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("Additional directories Claude can access beyond the working directory"),
+      toolsetId: z
+        .number()
+        .optional()
+        .describe("Toolset ID to use (get IDs from list_toolsets). Overrides allowedTools."),
       allowedTools: z
         .array(z.string())
         .optional()
-        .describe("Tools Claude is allowed to use (defaults to ['Read', 'Edit', 'Glob', 'Bash'])"),
+        .describe("Tools Claude is allowed to use (defaults to ['Read', 'Edit', 'Glob', 'Bash']). Ignored if toolsetId is provided."),
     },
   },
-  async ({ message, title, workspaceId, useWorktree, branchName, cwd, scheduledFor, cronExpression, additionalDirectories, allowedTools }) => {
+  async ({ templateId, message, title, workspaceId, useWorktree, branchName, cwd, scheduledFor, cronExpression, additionalDirectories, toolsetId, allowedTools }) => {
+    // Load template if specified
+    let templateName: string | undefined;
+    if (templateId) {
+      const template = await getTemplate(templateId);
+      if (!template) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: Template with ID ${templateId} not found`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      templateName = template.name;
+      const templateWithToolset = template as { toolset?: { id: number; tools: string } };
+
+      // Apply template defaults (explicit params override template)
+      if (title === undefined) title = template.title ?? undefined;
+      if (workspaceId === undefined) workspaceId = template.workspaceId ?? undefined;
+      if (useWorktree === undefined) useWorktree = template.useWorktree;
+      if (branchName === undefined && template.branchNamePattern) {
+        // Replace {name} and {date} placeholders in branch pattern
+        branchName = template.branchNamePattern
+          .replace("{name}", title || "conversation")
+          .replace("{date}", new Date().toISOString().split("T")[0]);
+      }
+      if (cronExpression === undefined) cronExpression = template.cronExpression ?? undefined;
+      if (additionalDirectories === undefined && template.additionalDirectories) {
+        additionalDirectories = JSON.parse(template.additionalDirectories);
+      }
+      // Toolset from template (can be overridden by explicit toolsetId or allowedTools)
+      if (toolsetId === undefined && allowedTools === undefined) {
+        if (templateWithToolset.toolset) {
+          allowedTools = JSON.parse(templateWithToolset.toolset.tools);
+        } else if (template.allowedTools) {
+          allowedTools = JSON.parse(template.allowedTools);
+        }
+      }
+      // Use template's initial message if no message provided
+      if (message === undefined) message = template.initialMessage ?? undefined;
+    }
+
+    // If toolsetId provided, load the toolset and use its tools
+    if (toolsetId) {
+      const toolset = await getToolset(toolsetId);
+      if (!toolset) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: Toolset with ID ${toolsetId} not found`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      allowedTools = JSON.parse(toolset.tools);
+    }
     let finalCwd = cwd;
     let worktreePath: string | undefined;
     let worktreeBranch: string | undefined;
@@ -857,6 +1450,7 @@ server.registerTool(
     }
 
     let responseText = `Conversation created successfully!\n\nID: ${conversation.id}`;
+    if (templateName) responseText += `\nTemplate: ${templateName}`;
     if (title) responseText += `\nTitle: ${title}`;
     if (finalCwd) responseText += `\nWorking Directory: ${finalCwd}`;
     if (worktreeBranch) responseText += `\nBranch: ${worktreeBranch}`;

@@ -22,6 +22,11 @@ import {
   getWorkspace,
   deleteWorkspace,
   createWorktree,
+  getTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
 } from "./queue";
 import {
   getRegisteredJobs,
@@ -186,6 +191,25 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         .tool-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e0f2fe; color: #0369a1; border-radius: 4px; font-size: 12px; font-family: monospace; }
         .tool-tag button { background: none; border: none; color: #0369a1; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
         .tool-tag button:hover { color: #ef4444; }
+        .templates-section { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .templates-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+        .templates-list { padding: 0; }
+        .template-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 20px; border-bottom: 1px solid #f3f4f6; }
+        .template-item:last-child { border-bottom: none; }
+        .template-info { flex: 1; }
+        .template-name { font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+        .template-description { font-size: 13px; color: #6b7280; margin-bottom: 4px; }
+        .template-details { font-size: 12px; color: #9ca3af; display: flex; flex-wrap: wrap; gap: 12px; }
+        .template-detail { display: flex; align-items: center; gap: 4px; }
+        .template-actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: 12px; }
+        .dir-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; min-height: 24px; }
+        .dir-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e0f2fe; color: #0369a1; border-radius: 4px; font-size: 12px; font-family: monospace; }
+        .dir-tag button { background: none; border: none; color: #0369a1; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
+        .dir-tag button:hover { color: #ef4444; }
+        .add-row { display: flex; gap: 8px; margin-top: 8px; }
+        .add-row input { flex: 1; }
+        .add-row button { padding: 8px 12px; background: #e5e7eb; color: #374151; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; white-space: nowrap; }
+        .add-row button:hover { background: #d1d5db; }
         .form-group input[type="checkbox"] { width: auto; margin-right: 8px; }
         .checkbox-label { display: flex; align-items: center; cursor: pointer; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; overflow-y: auto; }
@@ -741,6 +765,316 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           }
         }
 
+        // ============ Templates ============
+        var templatesCache = [];
+        var templateDirectories = [];
+
+        function renderTemplateDirectories() {
+          var container = document.getElementById('template-dirs-list');
+          if (!container) return;
+          var html = '';
+          templateDirectories.forEach(function(dir, idx) {
+            html += '<span class="dir-tag">' + escapeHtml(dir) + '<button type="button" onclick="removeTemplateDirectory(' + idx + ')">×</button></span>';
+          });
+          container.innerHTML = html;
+        }
+
+        function addTemplateDirectory() {
+          var input = document.getElementById('new-template-dir-input');
+          var dir = input.value.trim();
+          if (!dir) return;
+          if (templateDirectories.indexOf(dir) === -1) {
+            templateDirectories.push(dir);
+            renderTemplateDirectories();
+          }
+          input.value = '';
+        }
+
+        function addTemplateDirFromWorkspace() {
+          var select = document.getElementById('template-dir-workspace-select');
+          var path = select.value;
+          if (!path) {
+            alert('Please select a workspace');
+            return;
+          }
+          if (templateDirectories.indexOf(path) === -1) {
+            templateDirectories.push(path);
+            renderTemplateDirectories();
+          }
+          select.value = '';
+        }
+
+        function populateTemplateDirWorkspaces() {
+          var select = document.getElementById('template-dir-workspace-select');
+          select.innerHTML = '<option value="">-- Add from workspace --</option>';
+          workspacesCache.forEach(function(ws) {
+            select.innerHTML += '<option value="' + escapeHtml(ws.path) + '">' + escapeHtml(ws.name) + '</option>';
+          });
+        }
+
+        function removeTemplateDirectory(idx) {
+          templateDirectories.splice(idx, 1);
+          renderTemplateDirectories();
+        }
+
+        async function fetchTemplates() {
+          try {
+            var res = await fetch('/api/templates');
+            var templates = await res.json();
+            templatesCache = templates;
+            var container = document.getElementById('templates-list');
+
+            if (templates.length === 0) {
+              container.innerHTML = '<div class="empty-state">No templates yet. Add one to save conversation presets!</div>';
+              return;
+            }
+
+            container.innerHTML = templates.map(function(t) {
+              var details = [];
+              if (t.workspace) details.push('<span class="template-detail">📁 ' + escapeHtml(t.workspace.name) + '</span>');
+              if (t.toolset) details.push('<span class="template-detail">🔧 ' + escapeHtml(t.toolset.name) + '</span>');
+              if (t.useWorktree) details.push('<span class="template-detail">🌿 Worktree</span>');
+              if (t.cronExpression) details.push('<span class="template-detail">🔄 ' + escapeHtml(t.cronExpression) + '</span>');
+              if (t.initialMessage) details.push('<span class="template-detail">💬 Has prompt</span>');
+
+              return '<div class="template-item">' +
+                '<div class="template-info">' +
+                  '<div class="template-name">' + escapeHtml(t.name) + '</div>' +
+                  (t.description ? '<div class="template-description">' + escapeHtml(t.description) + '</div>' : '') +
+                  '<div class="template-details">' + details.join('') + '</div>' +
+                '</div>' +
+                '<div class="template-actions">' +
+                  '<button class="btn btn-secondary btn-small" onclick="useTemplate(' + t.id + ')">Use</button>' +
+                  '<button class="btn btn-secondary btn-small" onclick="editTemplate(' + t.id + ')">Edit</button>' +
+                  '<button class="btn btn-danger btn-small" onclick="deleteTemplate(' + t.id + ')">Delete</button>' +
+                '</div>' +
+              '</div>';
+            }).join('');
+          } catch (e) {
+            console.error('Failed to fetch templates:', e);
+          }
+        }
+
+        function openNewTemplateModal() {
+          document.getElementById('template-modal-title').textContent = 'Add Template';
+          document.getElementById('edit-template-id').value = '';
+          document.getElementById('new-template-modal').classList.add('active');
+          // Reset form
+          document.getElementById('new-template-name').value = '';
+          document.getElementById('new-template-description').value = '';
+          document.getElementById('new-template-message').value = '';
+          document.getElementById('new-template-title').value = '';
+          document.getElementById('new-template-workspace').value = '';
+          document.getElementById('new-template-worktree').checked = false;
+          document.getElementById('new-template-branch-pattern').value = '';
+          document.getElementById('new-template-toolset').value = '';
+          document.getElementById('new-template-cron').value = '';
+          document.getElementById('template-worktree-option').style.display = 'none';
+          document.getElementById('template-branch-pattern-group').style.display = 'none';
+          // Reset directories
+          templateDirectories = [];
+          renderTemplateDirectories();
+          // Populate dropdowns
+          populateTemplateWorkspaces();
+          populateTemplateToolsets();
+          populateTemplateDirWorkspaces();
+        }
+
+        function closeNewTemplateModal() {
+          document.getElementById('new-template-modal').classList.remove('active');
+        }
+
+        function onTemplateWorkspaceChange() {
+          var hasWorkspace = document.getElementById('new-template-workspace').value !== '';
+          document.getElementById('template-worktree-option').style.display = hasWorkspace ? 'block' : 'none';
+          if (!hasWorkspace) {
+            document.getElementById('new-template-worktree').checked = false;
+            document.getElementById('template-branch-pattern-group').style.display = 'none';
+          }
+        }
+
+        function onTemplateWorktreeChange() {
+          var checked = document.getElementById('new-template-worktree').checked;
+          document.getElementById('template-branch-pattern-group').style.display = checked ? 'block' : 'none';
+        }
+
+        function populateTemplateWorkspaces() {
+          var select = document.getElementById('new-template-workspace');
+          select.innerHTML = '<option value="">-- No workspace --</option>';
+          workspacesCache.forEach(function(ws) {
+            select.innerHTML += '<option value="' + ws.id + '">' + escapeHtml(ws.name) + '</option>';
+          });
+        }
+
+        function populateTemplateToolsets() {
+          var select = document.getElementById('new-template-toolset');
+          select.innerHTML = '<option value="">-- Use default tools --</option>';
+          toolsetsCache.forEach(function(ts) {
+            select.innerHTML += '<option value="' + ts.id + '">' + escapeHtml(ts.name) + '</option>';
+          });
+        }
+
+        async function submitTemplate() {
+          var name = document.getElementById('new-template-name').value.trim();
+          var editId = document.getElementById('edit-template-id').value;
+
+          if (!name) {
+            alert('Please enter a name');
+            return;
+          }
+
+          var data = {
+            name: name,
+            description: document.getElementById('new-template-description').value.trim() || null,
+            initialMessage: document.getElementById('new-template-message').value.trim() || null,
+            title: document.getElementById('new-template-title').value.trim() || null,
+            workspaceId: document.getElementById('new-template-workspace').value ? parseInt(document.getElementById('new-template-workspace').value) : null,
+            useWorktree: document.getElementById('new-template-worktree').checked,
+            branchNamePattern: document.getElementById('new-template-branch-pattern').value.trim() || null,
+            toolsetId: document.getElementById('new-template-toolset').value ? parseInt(document.getElementById('new-template-toolset').value) : null,
+            cronExpression: document.getElementById('new-template-cron').value.trim() || null
+          };
+
+          // Add directories if any
+          if (templateDirectories.length > 0) {
+            data.additionalDirectories = templateDirectories.slice();
+          }
+
+          try {
+            var url = editId ? '/api/templates/' + editId : '/api/templates';
+            var method = editId ? 'PUT' : 'POST';
+            var res = await fetch(url, {
+              method: method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data)
+            });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            closeNewTemplateModal();
+            fetchTemplates();
+          } catch (e) {
+            console.error('Failed to save template:', e);
+            alert('Failed to save template');
+          }
+        }
+
+        function editTemplate(id) {
+          var template = templatesCache.find(function(t) { return t.id === id; });
+          if (!template) return;
+
+          document.getElementById('template-modal-title').textContent = 'Edit Template';
+          document.getElementById('edit-template-id').value = id;
+          document.getElementById('new-template-name').value = template.name;
+          document.getElementById('new-template-description').value = template.description || '';
+          document.getElementById('new-template-message').value = template.initialMessage || '';
+          document.getElementById('new-template-title').value = template.title || '';
+          document.getElementById('new-template-cron').value = template.cronExpression || '';
+
+          // Populate dropdowns first
+          populateTemplateWorkspaces();
+          populateTemplateToolsets();
+
+          // Then set values
+          document.getElementById('new-template-workspace').value = template.workspaceId || '';
+          document.getElementById('new-template-toolset').value = template.toolsetId || '';
+          document.getElementById('new-template-worktree').checked = template.useWorktree;
+          document.getElementById('new-template-branch-pattern').value = template.branchNamePattern || '';
+
+          // Parse additional directories
+          populateTemplateDirWorkspaces();
+          if (template.additionalDirectories) {
+            try {
+              templateDirectories = JSON.parse(template.additionalDirectories);
+            } catch (e) {
+              templateDirectories = [];
+            }
+          } else {
+            templateDirectories = [];
+          }
+          renderTemplateDirectories();
+
+          // Show/hide conditional fields
+          onTemplateWorkspaceChange();
+          onTemplateWorktreeChange();
+
+          document.getElementById('new-template-modal').classList.add('active');
+        }
+
+        async function deleteTemplate(id) {
+          if (!confirm('Are you sure you want to delete this template?')) {
+            return;
+          }
+          try {
+            var res = await fetch('/api/templates/' + id, { method: 'DELETE' });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            fetchTemplates();
+          } catch (e) {
+            console.error('Failed to delete template:', e);
+            alert('Failed to delete template');
+          }
+        }
+
+        function useTemplate(id) {
+          var template = templatesCache.find(function(t) { return t.id === id; });
+          if (!template) return;
+
+          // Open the new conversation modal with template values pre-filled
+          openNewConversationModal();
+
+          // Pre-fill values from template
+          if (template.title) {
+            document.getElementById('new-conversation-name').value = template.title;
+          }
+          if (template.initialMessage) {
+            document.getElementById('new-conversation-message').value = template.initialMessage;
+          }
+          if (template.workspaceId) {
+            document.getElementById('new-conversation-workspace').value = template.workspaceId;
+            onWorkspaceChange();
+          }
+          if (template.useWorktree) {
+            document.getElementById('new-conversation-worktree').checked = true;
+            onWorktreeChange();
+            if (template.branchNamePattern) {
+              // Replace placeholders for branch name
+              var branchName = template.branchNamePattern
+                .replace('{name}', template.title || 'conversation')
+                .replace('{date}', new Date().toISOString().split('T')[0]);
+              document.getElementById('new-conversation-branch').value = branchName;
+            }
+          }
+          if (template.toolsetId) {
+            document.getElementById('new-conversation-toolset').value = template.toolsetId;
+          }
+          if (template.additionalDirectories) {
+            try {
+              var dirs = JSON.parse(template.additionalDirectories);
+              if (dirs.length > 0) {
+                // Enable additional directories section
+                document.getElementById('new-conversation-add-dirs').checked = true;
+                onAddDirsChange();
+                // Populate directories
+                additionalDirs = dirs.slice();
+                renderAdditionalDirsList();
+              }
+            } catch (e) {}
+          }
+          if (template.cronExpression) {
+            document.getElementById('new-conversation-schedule').checked = true;
+            onConversationScheduleChange();
+            document.getElementById('new-conversation-schedule-type').value = 'recurring';
+            onConversationScheduleTypeChange();
+            document.getElementById('new-conversation-cron').value = template.cronExpression;
+          }
+        }
+
         // ============ Conversations ============
         var selectedWorkspaceId = null;
         var currentConversationPage = 1;
@@ -1169,6 +1503,7 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         fetchStats();
         fetchJobs();
         fetchToolsets();
+        fetchTemplates();
         fetchWorkspaces().then(function() {
           fetchConversations();
         });
@@ -1384,6 +1719,99 @@ const NewToolsetModal: FC = () => (
   </div>
 );
 
+const TemplatesSection: FC = () => (
+  <div class="templates-section">
+    <div class="templates-header">
+      <div>
+        <h2>Templates</h2>
+        <span class="refresh-info">Saved conversation presets</span>
+      </div>
+      <div class="job-buttons">
+        <button class="add-job-btn" onclick="openNewTemplateModal()">+ Add Template</button>
+      </div>
+    </div>
+    <div id="templates-list" class="templates-list">
+      <div class="empty-state">Loading...</div>
+    </div>
+  </div>
+);
+
+const NewTemplateModal: FC = () => (
+  <div id="new-template-modal" class="modal" onclick="if(event.target===this)closeNewTemplateModal()">
+    <div class="modal-content">
+      <h3 id="template-modal-title">Add Template</h3>
+      <input type="hidden" id="edit-template-id" value="" />
+      <div class="form-group">
+        <label>Name *</label>
+        <input type="text" id="new-template-name" placeholder="daily-standup" />
+        <small>A unique name for this template</small>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" id="new-template-description" placeholder="Morning standup check-in" />
+      </div>
+      <div class="form-group">
+        <label>Initial Message</label>
+        <textarea id="new-template-message" rows={4} placeholder="What would you like Claude to do?" style="width:100%;resize:vertical;"></textarea>
+        <small>The prompt to start conversations with</small>
+      </div>
+      <div class="form-group">
+        <label>Conversation Title (optional)</label>
+        <input type="text" id="new-template-title" placeholder="e.g., Daily Standup" />
+        <small>Default title for conversations created from this template</small>
+      </div>
+      <div class="form-group">
+        <label>Workspace (optional)</label>
+        <select id="new-template-workspace" onchange="onTemplateWorkspaceChange()">
+          <option value="">-- No workspace --</option>
+        </select>
+      </div>
+      <div class="form-group" id="template-worktree-option" style="display:none;">
+        <label class="checkbox-label">
+          <input type="checkbox" id="new-template-worktree" onchange="onTemplateWorktreeChange()" />
+          Create worktree for each conversation
+        </label>
+      </div>
+      <div class="form-group" id="template-branch-pattern-group" style="display:none;">
+        <label>Branch Name Pattern</label>
+        <input type="text" id="new-template-branch-pattern" placeholder="feature/{name}-{date}" />
+        <small>Use {"{name}"} for title and {"{date}"} for current date</small>
+      </div>
+      <div class="form-group">
+        <label>Toolset (optional)</label>
+        <select id="new-template-toolset">
+          <option value="">-- Use default tools --</option>
+        </select>
+        <small>Preset tool configuration for conversations</small>
+      </div>
+      <div class="form-group">
+        <label>Additional Directories (optional)</label>
+        <div class="dir-list" id="template-dirs-list"></div>
+        <div class="add-row">
+          <select id="template-dir-workspace-select" style="flex:1;">
+            <option value="">-- Add from workspace --</option>
+          </select>
+          <button type="button" onclick="addTemplateDirFromWorkspace()">Add</button>
+        </div>
+        <div class="add-row">
+          <input type="text" id="new-template-dir-input" placeholder="/path/to/directory" />
+          <button type="button" onclick="addTemplateDirectory()">Add</button>
+        </div>
+        <small>Directories Claude can access beyond the working directory</small>
+      </div>
+      <div class="form-group">
+        <label>Cron Expression (optional)</label>
+        <input type="text" id="new-template-cron" placeholder="0 9 * * 1-5" />
+        <small>For recurring conversations, e.g., "0 9 * * 1-5" = 9 AM weekdays</small>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" onclick="closeNewTemplateModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitTemplate()">Save Template</button>
+      </div>
+    </div>
+  </div>
+);
+
 const NewConversationModal: FC = () => (
   <div id="new-conversation-modal" class="modal" onclick="if(event.target===this)closeNewConversationModal()">
     <div class="modal-content">
@@ -1574,6 +2002,7 @@ const Dashboard: FC = () => (
     <QueueStats />
     <WorkspacesSection />
     <ToolsetsSection />
+    <TemplatesSection />
     <ConversationsList />
     <JobList />
     <ScheduleModal />
@@ -1581,6 +2010,7 @@ const Dashboard: FC = () => (
     <NewConversationModal />
     <NewWorkspaceModal />
     <NewToolsetModal />
+    <NewTemplateModal />
   </Layout>
 );
 
@@ -3130,6 +3560,102 @@ app.post("/api/toolsets/:id/set-default", async (c) => {
       data: { isDefault: true },
     });
     return c.json(toolset);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// ============ Template API ============
+
+// Get all templates
+app.get("/api/templates", async (c) => {
+  const templates = await prisma.conversationTemplate.findMany({
+    orderBy: { name: "asc" },
+    include: { workspace: true, toolset: true },
+  });
+  return c.json(templates);
+});
+
+// Get a single template
+app.get("/api/templates/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+
+  try {
+    const template = await prisma.conversationTemplate.findUnique({
+      where: { id },
+      include: { workspace: true, toolset: true },
+    });
+
+    if (!template) {
+      return c.json({ error: "Template not found" }, 404);
+    }
+
+    return c.json(template);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Create a new template
+app.post("/api/templates", async (c) => {
+  const body = await c.req.json();
+
+  if (!body.name) {
+    return c.json({ error: "Name is required" }, 400);
+  }
+
+  try {
+    const template = await createTemplate({
+      name: body.name,
+      description: body.description,
+      title: body.title,
+      workspaceId: body.workspaceId,
+      useWorktree: body.useWorktree || false,
+      branchNamePattern: body.branchNamePattern,
+      toolsetId: body.toolsetId,
+      allowedTools: body.allowedTools,
+      additionalDirectories: body.additionalDirectories,
+      initialMessage: body.initialMessage,
+      cronExpression: body.cronExpression,
+    });
+    return c.json(template, 201);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Update a template
+app.put("/api/templates/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json();
+
+  try {
+    const template = await updateTemplate(id, {
+      name: body.name,
+      description: body.description,
+      title: body.title,
+      workspaceId: body.workspaceId,
+      useWorktree: body.useWorktree,
+      branchNamePattern: body.branchNamePattern,
+      toolsetId: body.toolsetId,
+      allowedTools: body.allowedTools,
+      additionalDirectories: body.additionalDirectories,
+      initialMessage: body.initialMessage,
+      cronExpression: body.cronExpression,
+    });
+    return c.json(template);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Delete a template
+app.delete("/api/templates/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+
+  try {
+    const template = await deleteTemplate(id);
+    return c.json(template);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
   }

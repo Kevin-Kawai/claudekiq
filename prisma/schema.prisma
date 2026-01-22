@@ -55,6 +55,7 @@ model Workspace {
 
   // Relations
   conversations Conversation[]
+  templates     ConversationTemplate[]
 
   @@index([name])
 }
@@ -105,5 +106,36 @@ model Toolset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Relations
+  templates ConversationTemplate[]
+
   @@index([isDefault])
+}
+
+model ConversationTemplate {
+  id                    Int      @id @default(autoincrement())
+  name                  String   @unique
+  description           String?
+
+  // Conversation settings
+  title                 String?  // Template for conversation title
+  workspaceId           Int?
+  workspace             Workspace? @relation(fields: [workspaceId], references: [id])
+  useWorktree           Boolean  @default(false)
+  branchNamePattern     String?  // Pattern for branch name, e.g., "feature/{name}"
+
+  // Claude SDK options
+  toolsetId             Int?     // Reference to a saved toolset
+  toolset               Toolset? @relation(fields: [toolsetId], references: [id])
+  allowedTools          String?  // JSON array of tool names (used if no toolsetId)
+  additionalDirectories String?  // JSON array of directory paths
+
+  // Initial message template
+  initialMessage        String?  // The prompt to start with
+  cronExpression        String?  // For recurring initial messages
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([name])
 }

@@ -908,4 +908,269 @@ export async function removeWorktree(
   });
 }
 
+// ============ Toolset Functions ============
+
+export interface Toolset {
+  id: number;
+  name: string;
+  tools: string; // JSON array
+  isDefault: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Create a new toolset
+ */
+export async function createToolset(name: string, tools: string[], isDefault = false): Promise<Toolset> {
+  // If setting as default, unset any existing default first
+  if (isDefault) {
+    await withRetry(
+      () => prisma.toolset.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      }),
+      { operationName: "createToolset.unsetDefault" }
+    );
+  }
+
+  return withRetry(
+    () => prisma.toolset.create({
+      data: {
+        name,
+        tools: JSON.stringify(tools),
+        isDefault,
+      },
+    }),
+    { operationName: "createToolset" }
+  );
+}
+
+/**
+ * Get all toolsets
+ */
+export async function getToolsets(): Promise<Toolset[]> {
+  return withRetry(
+    () => prisma.toolset.findMany({
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+    }),
+    { operationName: "getToolsets" }
+  );
+}
+
+/**
+ * Get a toolset by ID
+ */
+export async function getToolset(id: number): Promise<Toolset | null> {
+  return withRetry(
+    () => prisma.toolset.findUnique({
+      where: { id },
+    }),
+    { operationName: `getToolset(${id})` }
+  );
+}
+
+/**
+ * Get a toolset by name
+ */
+export async function getToolsetByName(name: string): Promise<Toolset | null> {
+  return withRetry(
+    () => prisma.toolset.findUnique({
+      where: { name },
+    }),
+    { operationName: `getToolsetByName(${name})` }
+  );
+}
+
+/**
+ * Get the default toolset
+ */
+export async function getDefaultToolset(): Promise<Toolset | null> {
+  return withRetry(
+    () => prisma.toolset.findFirst({
+      where: { isDefault: true },
+    }),
+    { operationName: "getDefaultToolset" }
+  );
+}
+
+/**
+ * Update a toolset
+ */
+export async function updateToolset(
+  id: number,
+  updates: { name?: string; tools?: string[]; isDefault?: boolean }
+): Promise<Toolset> {
+  // If setting as default, unset any existing default first
+  if (updates.isDefault) {
+    await withRetry(
+      () => prisma.toolset.updateMany({
+        where: { isDefault: true, id: { not: id } },
+        data: { isDefault: false },
+      }),
+      { operationName: "updateToolset.unsetDefault" }
+    );
+  }
+
+  const data: Record<string, unknown> = {};
+  if (updates.name !== undefined) data.name = updates.name;
+  if (updates.tools !== undefined) data.tools = JSON.stringify(updates.tools);
+  if (updates.isDefault !== undefined) data.isDefault = updates.isDefault;
+
+  return withRetry(
+    () => prisma.toolset.update({
+      where: { id },
+      data,
+    }),
+    { operationName: `updateToolset(${id})` }
+  );
+}
+
+/**
+ * Delete a toolset
+ */
+export async function deleteToolset(id: number): Promise<Toolset> {
+  return withRetry(
+    () => prisma.toolset.delete({
+      where: { id },
+    }),
+    { operationName: `deleteToolset(${id})` }
+  );
+}
+
+// ============ Conversation Template Functions ============
+
+export interface ConversationTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  title: string | null;
+  workspaceId: number | null;
+  useWorktree: boolean;
+  branchNamePattern: string | null;
+  toolsetId: number | null;
+  allowedTools: string | null;
+  additionalDirectories: string | null;
+  initialMessage: string | null;
+  cronExpression: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateTemplateInput {
+  name: string;
+  description?: string;
+  title?: string;
+  workspaceId?: number;
+  useWorktree?: boolean;
+  branchNamePattern?: string;
+  toolsetId?: number;
+  allowedTools?: string[];
+  additionalDirectories?: string[];
+  initialMessage?: string;
+  cronExpression?: string;
+}
+
+/**
+ * Create a new conversation template
+ */
+export async function createTemplate(input: CreateTemplateInput): Promise<ConversationTemplate> {
+  return withRetry(
+    () => prisma.conversationTemplate.create({
+      data: {
+        name: input.name,
+        description: input.description,
+        title: input.title,
+        workspaceId: input.workspaceId,
+        useWorktree: input.useWorktree ?? false,
+        branchNamePattern: input.branchNamePattern,
+        toolsetId: input.toolsetId,
+        allowedTools: input.allowedTools ? JSON.stringify(input.allowedTools) : null,
+        additionalDirectories: input.additionalDirectories ? JSON.stringify(input.additionalDirectories) : null,
+        initialMessage: input.initialMessage,
+        cronExpression: input.cronExpression,
+      },
+    }),
+    { operationName: "createTemplate" }
+  );
+}
+
+/**
+ * Get all conversation templates
+ */
+export async function getTemplates(): Promise<ConversationTemplate[]> {
+  return withRetry(
+    () => prisma.conversationTemplate.findMany({
+      orderBy: { name: "asc" },
+      include: { workspace: true, toolset: true },
+    }),
+    { operationName: "getTemplates" }
+  );
+}
+
+/**
+ * Get a conversation template by ID
+ */
+export async function getTemplate(id: number) {
+  return withRetry(
+    () => prisma.conversationTemplate.findUnique({
+      where: { id },
+      include: { workspace: true, toolset: true },
+    }),
+    { operationName: `getTemplate(${id})` }
+  );
+}
+
+/**
+ * Get a conversation template by name
+ */
+export async function getTemplateByName(name: string) {
+  return withRetry(
+    () => prisma.conversationTemplate.findUnique({
+      where: { name },
+      include: { workspace: true, toolset: true },
+    }),
+    { operationName: `getTemplateByName(${name})` }
+  );
+}
+
+/**
+ * Update a conversation template
+ */
+export async function updateTemplate(id: number, input: Partial<CreateTemplateInput>): Promise<ConversationTemplate> {
+  const data: Record<string, unknown> = {};
+
+  if (input.name !== undefined) data.name = input.name;
+  if (input.description !== undefined) data.description = input.description;
+  if (input.title !== undefined) data.title = input.title;
+  if (input.workspaceId !== undefined) data.workspaceId = input.workspaceId;
+  if (input.useWorktree !== undefined) data.useWorktree = input.useWorktree;
+  if (input.branchNamePattern !== undefined) data.branchNamePattern = input.branchNamePattern;
+  if (input.toolsetId !== undefined) data.toolsetId = input.toolsetId;
+  if (input.allowedTools !== undefined) data.allowedTools = JSON.stringify(input.allowedTools);
+  if (input.additionalDirectories !== undefined) data.additionalDirectories = JSON.stringify(input.additionalDirectories);
+  if (input.initialMessage !== undefined) data.initialMessage = input.initialMessage;
+  if (input.cronExpression !== undefined) data.cronExpression = input.cronExpression;
+
+  return withRetry(
+    () => prisma.conversationTemplate.update({
+      where: { id },
+      data,
+    }),
+    { operationName: `updateTemplate(${id})` }
+  );
+}
+
+/**
+ * Delete a conversation template
+ */
+export async function deleteTemplate(id: number): Promise<ConversationTemplate> {
+  return withRetry(
+    () => prisma.conversationTemplate.delete({
+      where: { id },
+    }),
+    { operationName: `deleteTemplate(${id})` }
+  );
+}
+
 export { prisma };

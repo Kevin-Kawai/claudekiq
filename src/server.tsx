@@ -226,6 +226,246 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         .btn-primary:hover { background: #2563eb; }
         .btn-secondary { background: #e5e7eb; color: #374151; }
         .btn-secondary:hover { background: #d1d5db; }
+
+        /* ============ Mobile Responsive Styles ============ */
+        @media (max-width: 768px) {
+          body { padding: 12px; }
+          h1 { font-size: 22px; margin-bottom: 16px; }
+
+          /* Stats Grid */
+          .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+          .stat-card { padding: 14px 10px; }
+          .stat-card h3 { font-size: 11px; }
+          .stat-card .value { font-size: 24px; }
+
+          /* Jobs Section */
+          .jobs-section { overflow: hidden; }
+          .jobs-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .jobs-header h2 { font-size: 16px; }
+          .job-buttons {
+            width: 100%;
+            flex-wrap: wrap;
+            gap: 6px;
+          }
+          .add-job-btn {
+            padding: 8px 10px;
+            font-size: 12px;
+            flex: 1 1 calc(50% - 4px);
+            min-width: 0;
+            text-align: center;
+          }
+          .refresh-info { font-size: 11px; }
+
+          /* Tables - Horizontal Scroll */
+          .jobs-section table {
+            display: block;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            white-space: nowrap;
+          }
+          th, td { padding: 10px 12px; font-size: 12px; }
+          th { font-size: 10px; }
+          .args { max-width: 150px; }
+          .error-text { max-width: 100px; }
+          .action-btn { padding: 4px 6px; font-size: 10px; }
+
+          /* Conversations Section */
+          .conversations-section { margin-bottom: 16px; }
+          .conversations-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .conversations-header h2 { font-size: 16px; }
+          .conversations-header .job-buttons {
+            width: 100%;
+            flex-direction: column;
+            gap: 8px;
+          }
+          .conversations-header .job-buttons select {
+            width: 100%;
+            padding: 10px 12px;
+          }
+          .conversations-header .job-buttons button {
+            width: 100%;
+            text-align: center;
+          }
+
+          /* Conversation Items */
+          .conversation-item {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 14px 14px;
+            gap: 10px;
+          }
+          .conversation-info { width: 100%; }
+          .conversation-title { font-size: 15px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+          .conversation-preview { max-width: 100%; font-size: 12px; white-space: normal; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+          .conversation-meta {
+            width: 100%;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 11px;
+          }
+
+          /* Pagination */
+          .pagination { padding: 12px 14px; gap: 8px; flex-wrap: wrap; justify-content: center; }
+          .pagination button { padding: 8px 12px; font-size: 12px; }
+          .pagination .page-info { font-size: 12px; width: 100%; text-align: center; order: -1; }
+
+          /* Workspaces Section */
+          .workspaces-section { margin-bottom: 16px; }
+          .workspaces-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .workspaces-header h2 { font-size: 16px; }
+          .workspaces-header .job-buttons { width: 100%; }
+          .workspaces-header .job-buttons button { width: 100%; text-align: center; }
+          .workspace-item {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .workspace-info { width: 100%; }
+          .workspace-name { font-size: 14px; }
+          .workspace-path { font-size: 11px; word-break: break-all; }
+          .workspace-actions { width: 100%; justify-content: flex-end; }
+
+          /* Toolsets Section */
+          .toolsets-section { margin-bottom: 16px; }
+          .toolsets-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .toolsets-header h2 { font-size: 16px; }
+          .toolsets-header .job-buttons { width: 100%; }
+          .toolsets-header .job-buttons button { width: 100%; text-align: center; }
+          .toolset-item {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .toolset-info { width: 100%; }
+          .toolset-name { font-size: 14px; flex-wrap: wrap; }
+          .toolset-tools { font-size: 11px; word-break: break-all; }
+          .toolset-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+          .tools-checkboxes { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+
+          /* Templates Section */
+          .templates-section { margin-bottom: 16px; }
+          .templates-header {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .templates-header h2 { font-size: 16px; }
+          .templates-header .job-buttons { width: 100%; }
+          .templates-header .job-buttons button { width: 100%; text-align: center; }
+          .template-item {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 12px 14px;
+            gap: 10px;
+          }
+          .template-info { width: 100%; }
+          .template-name { font-size: 14px; flex-wrap: wrap; }
+          .template-description { font-size: 12px; }
+          .template-details { font-size: 11px; gap: 8px; }
+          .template-actions { width: 100%; margin-left: 0; justify-content: flex-end; }
+
+          /* Modal Styles for Mobile */
+          .modal.active {
+            align-items: flex-start;
+            padding: 0;
+          }
+          .modal-content {
+            width: 100%;
+            max-width: 100%;
+            border-radius: 0;
+            padding: 20px 16px;
+            min-height: 100vh;
+            max-height: none;
+          }
+          .modal-content h3 { font-size: 18px; margin-bottom: 20px; }
+          .form-group { margin-bottom: 18px; }
+          .form-group label { font-size: 13px; margin-bottom: 6px; }
+          .form-group input, .form-group select, .form-group textarea {
+            padding: 12px 14px;
+            font-size: 16px; /* Prevents iOS zoom */
+          }
+          .form-group small { font-size: 11px; margin-top: 4px; display: block; }
+          .modal-buttons {
+            flex-direction: column-reverse;
+            gap: 10px;
+            margin-top: 24px;
+            position: sticky;
+            bottom: 0;
+            background: white;
+            padding: 16px 0;
+            margin-bottom: -20px;
+            margin-left: -16px;
+            margin-right: -16px;
+            padding-left: 16px;
+            padding-right: 16px;
+            border-top: 1px solid #e5e7eb;
+          }
+          .modal-buttons .btn {
+            width: 100%;
+            padding: 14px 16px;
+            font-size: 15px;
+          }
+
+          /* Additional Directories */
+          .dir-list { gap: 6px; }
+          .dir-tag { font-size: 10px; padding: 4px 6px; max-width: 100%; }
+          .add-row { flex-direction: column; gap: 8px; }
+          .add-row input, .add-row select { width: 100%; }
+          .add-row button { width: 100%; padding: 12px; }
+
+          /* Tool Tags */
+          .tool-tag { font-size: 10px; padding: 4px 6px; }
+
+          /* Empty States */
+          .empty-state { padding: 30px 16px; font-size: 14px; }
+        }
+
+        /* Small Mobile (phones in portrait) */
+        @media (max-width: 480px) {
+          body { padding: 8px; }
+          .stats-grid { gap: 8px; }
+          .stat-card { padding: 12px 8px; }
+          .stat-card h3 { font-size: 10px; }
+          .stat-card .value { font-size: 20px; }
+
+          .add-job-btn {
+            flex: 1 1 100%;
+            padding: 10px 8px;
+          }
+
+          .conversation-title { font-size: 14px; }
+          .conversation-meta span { font-size: 10px; }
+
+          .tools-checkboxes { grid-template-columns: 1fr; }
+
+          .btn-small { padding: 6px 10px; font-size: 11px; }
+        }
       `}</style>
     </head>
     <body>
@@ -2079,6 +2319,72 @@ const JobDetailsPage: FC<{ jobId: string }> = ({ jobId }) => (
         .no-session { color: #666; font-style: italic; }
         .loading { text-align: center; padding: 40px; color: #666; }
         .error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+
+        /* ============ Mobile Responsive Styles for Job Detail ============ */
+        @media (max-width: 768px) {
+          body { padding: 12px; }
+          .container { max-width: 100%; }
+
+          /* Header */
+          .header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 16px;
+          }
+          .header h1 { font-size: 18px; }
+          #pause-btn { margin-left: 0 !important; width: 100%; }
+
+          /* Job Info */
+          .job-info { padding: 14px; margin-bottom: 14px; }
+          .job-info h2 { font-size: 16px; margin-bottom: 12px; }
+          .info-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+          .info-label { font-size: 10px; }
+          .info-value { font-size: 13px; }
+
+          /* Job Actions */
+          .job-actions { margin-top: 12px; flex-direction: column; }
+          .job-actions button { width: 100%; padding: 12px 16px; }
+
+          /* Conversation/Messages */
+          .conversation { padding: 14px; }
+          .conversation h2 { font-size: 16px; margin-bottom: 12px; }
+          .messages { max-height: calc(100vh - 400px); padding: 10px; }
+
+          /* Messages */
+          .message { padding: 10px 12px; margin-bottom: 12px; }
+          .message-user { margin-left: 20px; }
+          .message-assistant { margin-right: 20px; }
+          .message-label { font-size: 10px; }
+          .message-content { font-size: 13px; }
+          .tool-use { padding: 6px; font-size: 11px; }
+
+          /* Follow-up */
+          .follow-up { flex-direction: column; gap: 8px; }
+          .follow-up textarea {
+            min-height: 80px;
+            padding: 12px;
+            font-size: 16px;
+          }
+          .follow-up button { width: 100%; padding: 14px 20px; font-size: 15px; }
+
+          /* Action Buttons */
+          .reset-btn, .cancel-btn, .pause-btn, .resume-btn {
+            width: 100%;
+            padding: 12px 16px;
+          }
+        }
+
+        @media (max-width: 480px) {
+          body { padding: 8px; }
+          .header h1 { font-size: 16px; }
+          .info-grid { grid-template-columns: 1fr; gap: 8px; }
+          .message-user { margin-left: 10px; }
+          .message-assistant { margin-right: 10px; }
+        }
       `}</style>
     </head>
     <body>
@@ -2417,6 +2723,118 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         .conv-options .tools-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
         .conv-options .tools-checkboxes .checkbox-label { display: flex; align-items: center; gap: 4px; font-size: 12px; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
         .conv-options .tools-checkboxes .checkbox-label input { margin: 0; }
+
+        /* ============ Mobile Responsive Styles for Conversation Detail ============ */
+        @media (max-width: 768px) {
+          body { padding: 12px; }
+          .container { max-width: 100%; }
+
+          /* Header */
+          .header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 16px;
+          }
+          .header h1 { font-size: 18px; word-break: break-word; }
+          #pause-btn { margin-left: 0 !important; width: 100%; }
+
+          /* Conversation Info */
+          .conv-info { padding: 14px; margin-bottom: 14px; }
+          .conv-info h2 { font-size: 16px; margin-bottom: 12px; }
+          .info-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+          .info-label { font-size: 10px; }
+          .info-value { font-size: 13px; }
+
+          /* Conversation Options */
+          .conv-options { margin-top: 12px; padding-top: 12px; }
+          .conv-options-header h3 { font-size: 13px; }
+          .conv-options .form-group { margin-bottom: 14px; }
+          .conv-options label { font-size: 11px; }
+          .conv-options small { font-size: 10px; }
+          .conv-options .dir-list { gap: 4px; }
+          .conv-options .dir-tag { font-size: 10px; padding: 3px 6px; max-width: 100%; word-break: break-all; }
+          .conv-options .tool-tag { font-size: 10px; padding: 3px 6px; }
+          .conv-options .add-row { flex-direction: column; gap: 6px; }
+          .conv-options .add-row input { width: 100%; padding: 10px 12px; font-size: 16px; }
+          .conv-options .add-row button { width: 100%; padding: 10px 12px; font-size: 14px; }
+          .conv-options .tools-checkboxes { gap: 6px; }
+          .conv-options .tools-checkboxes .checkbox-label { font-size: 11px; padding: 6px 8px; }
+          .conv-options .save-btn { width: 100%; padding: 12px 16px; font-size: 14px; }
+
+          /* Messages Container */
+          .conversation { padding: 14px; }
+          .conversation h2 { font-size: 16px; margin-bottom: 12px; }
+          .messages {
+            min-height: 200px;
+            max-height: calc(100vh - 350px);
+            padding: 10px;
+          }
+
+          /* Message Bubbles */
+          .message { padding: 10px 12px; margin-bottom: 12px; }
+          .message-user { margin-left: 20px; }
+          .message-assistant { margin-right: 20px; }
+          .message-label { font-size: 10px; margin-bottom: 4px; }
+          .message-content { font-size: 13px; line-height: 1.5; }
+          .tool-use { padding: 6px; margin-top: 6px; font-size: 11px; }
+          .tool-name { font-size: 11px; }
+
+          /* Processing Indicator */
+          .processing-indicator { padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
+          .processing-indicator .spinner { width: 14px; height: 14px; }
+
+          /* Follow-up Form */
+          .follow-up { flex-direction: column; gap: 8px; }
+          .follow-up textarea {
+            min-height: 80px;
+            padding: 12px;
+            font-size: 16px; /* Prevents iOS zoom */
+          }
+          .follow-up button {
+            width: 100%;
+            padding: 14px 20px;
+            font-size: 15px;
+          }
+          .follow-up-container { margin-top: 12px; }
+
+          /* Schedule Options */
+          .schedule-options { padding: 10px; margin-top: 8px; }
+          .schedule-options .form-group { margin-bottom: 10px; }
+          .schedule-options label { font-size: 12px; }
+          .schedule-options input, .schedule-options select {
+            padding: 10px 12px;
+            font-size: 16px; /* Prevents iOS zoom */
+          }
+          .schedule-options small { font-size: 10px; }
+
+          /* Max turns field */
+          .form-group input[type="number"] {
+            width: 100% !important;
+            padding: 10px 12px;
+            font-size: 16px;
+          }
+
+          /* Checkbox labels in follow-up */
+          .checkbox-label { font-size: 13px; }
+          .checkbox-label input { width: 18px; height: 18px; }
+
+          /* Error and Loading states */
+          .loading, .error { padding: 20px; font-size: 14px; }
+        }
+
+        @media (max-width: 480px) {
+          body { padding: 8px; }
+          .header h1 { font-size: 16px; }
+          .info-grid { grid-template-columns: 1fr; gap: 8px; }
+          .message-user { margin-left: 10px; }
+          .message-assistant { margin-right: 10px; }
+          .message-content { font-size: 12px; }
+          .messages { max-height: calc(100vh - 320px); }
+        }
       `}</style>
     </head>
     <body>

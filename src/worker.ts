@@ -3,6 +3,7 @@ import {
   getJobHandler,
   parseJobPayload,
   getRegisteredJobs,
+  SendDiscordNotificationJob,
 } from "./jobs";
 
 function sleep(ms: number): Promise<void> {
@@ -94,6 +95,40 @@ export async function runWorker(options: WorkerOptions = {}): Promise<never> {
       try {
         await ack(job.id);
         console.log(`Job ${job.id} [${jobClass}] completed`);
+
+        // Send Discord notification for completed conversation jobs
+        if (jobClass === "ConversationMessageJob" && process.env.DISCORD_WEBHOOK_URL) {
+          const { conversationId } = args as { conversationId: number };
+          try {
+            // Fetch conversation and latest result message for metadata
+            const conversation = await prisma.conversation.findUnique({
+              where: { id: conversationId },
+              include: {
+                messages: {
+                  where: { role: "result" },
+                  orderBy: { createdAt: "desc" },
+                  take: 1,
+                },
+              },
+            });
+
+            if (conversation) {
+              const resultMsg = conversation.messages[0];
+              const resultData = resultMsg ? JSON.parse(resultMsg.content) : {};
+
+              await SendDiscordNotificationJob.performLater({
+                conversationId,
+                conversationTitle: conversation.title || undefined,
+                status: "completed",
+                cost: resultData.total_cost_usd,
+                turns: resultData.num_turns,
+              }, { priority: 10 });
+            }
+          } catch (notifyErr) {
+            // Don't fail the job if notification fails
+            console.error(`Failed to enqueue Discord notification: ${notifyErr instanceof Error ? notifyErr.message : String(notifyErr)}`);
+          }
+        }
       } catch (ackErr) {
         // Job completed but we couldn't ack it - log the error but don't crash
         // The job may be retried but that's better than crashing the worker

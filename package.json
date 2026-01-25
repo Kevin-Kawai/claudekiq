@@ -9,7 +9,9 @@
     "worker": "ts-node src/worker.ts",
     "server": "ts-node src/server.tsx",
     "mcp": "ts-node src/mcp-server.ts",
+    "discord-bot": "ts-node src/discord-bot.ts",
     "dev": "concurrently \"npm run server\" \"npm run worker\"",
+    "dev:discord": "concurrently \"npm run server\" \"npm run worker\" \"npm run discord-bot\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

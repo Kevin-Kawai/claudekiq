@@ -24,3 +24,4 @@ export * from "./email.job";
 export * from "./report.job";
 export * from "./spawnClaudeSession.job";
 export * from "./conversationMessage.job";
+export * from "./discordNotification.job";

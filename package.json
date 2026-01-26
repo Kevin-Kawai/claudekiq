@@ -9,7 +9,9 @@
     "worker": "ts-node src/worker.ts",
     "server": "ts-node src/server.tsx",
     "mcp": "ts-node src/mcp-server.ts",
+    "discord-bot": "ts-node src/discord-bot.ts",
     "dev": "concurrently \"npm run server\" \"npm run worker\"",
+    "dev:discord": "concurrently \"npm run server\" \"npm run worker\" \"npm run discord-bot\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -32,6 +34,7 @@
     "better-sqlite3": "^11.0.0",
     "concurrently": "^9.2.1",
     "cron-parser": "^5.5.0",
+    "discord.js": "^14.25.1",
     "hono": "^4.11.4",
     "zod": "^4.3.5"
   }

@@ -3,6 +3,7 @@ import {
   getJobHandler,
   parseJobPayload,
   getRegisteredJobs,
+  SendDiscordNotificationJob,
 } from "./jobs";
 
 function sleep(ms: number): Promise<void> {
@@ -94,6 +95,60 @@ export async function runWorker(options: WorkerOptions = {}): Promise<never> {
       try {
         await ack(job.id);
         console.log(`Job ${job.id} [${jobClass}] completed`);
+
+        // Send Discord notification for completed conversation jobs
+        // Supports both webhook mode (DISCORD_WEBHOOK_URL) and bot mode (DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID)
+        const discordConfigured = process.env.DISCORD_WEBHOOK_URL || (process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CHANNEL_ID);
+        if (jobClass === "ConversationMessageJob" && discordConfigured) {
+          const { conversationId } = args as { conversationId: number };
+          try {
+            // Fetch conversation with result and last assistant message
+            const conversation = await prisma.conversation.findUnique({
+              where: { id: conversationId },
+              include: {
+                messages: {
+                  where: { role: { in: ["result", "assistant"] } },
+                  orderBy: { createdAt: "desc" },
+                  take: 10, // Get recent messages to find both result and last assistant
+                },
+              },
+            });
+
+            if (conversation) {
+              const resultMsg = conversation.messages.find(m => m.role === "result");
+              const assistantMsg = conversation.messages.find(m => m.role === "assistant");
+              const resultData = resultMsg ? JSON.parse(resultMsg.content) : {};
+
+              // Extract text from assistant message content blocks
+              let responseText: string | undefined;
+              if (assistantMsg) {
+                try {
+                  const assistantData = JSON.parse(assistantMsg.content);
+                  if (assistantData.content && Array.isArray(assistantData.content)) {
+                    responseText = assistantData.content
+                      .filter((block: { type?: string; text?: string }) => block.type === "text" && block.text)
+                      .map((block: { text: string }) => block.text)
+                      .join("\n");
+                  }
+                } catch {
+                  // Ignore parse errors
+                }
+              }
+
+              await SendDiscordNotificationJob.performLater({
+                conversationId,
+                conversationTitle: conversation.title || undefined,
+                status: "completed",
+                cost: resultData.total_cost_usd,
+                turns: resultData.num_turns,
+                responseText,
+              }, { priority: 10 });
+            }
+          } catch (notifyErr) {
+            // Don't fail the job if notification fails
+            console.error(`Failed to enqueue Discord notification: ${notifyErr instanceof Error ? notifyErr.message : String(notifyErr)}`);
+          }
+        }
       } catch (ackErr) {
         // Job completed but we couldn't ack it - log the error but don't crash
         // The job may be retried but that's better than crashing the worker
@@ -104,6 +159,27 @@ export async function runWorker(options: WorkerOptions = {}): Promise<never> {
       console.error(`Job ${job.id} [${jobClass}] failed: ${errorMessage}`);
       try {
         await fail(job.id, errorMessage);
+
+        // Send Discord notification for failed conversation jobs
+        const discordConfiguredForFailure = process.env.DISCORD_WEBHOOK_URL || (process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CHANNEL_ID);
+        if (jobClass === "ConversationMessageJob" && discordConfiguredForFailure) {
+          const { conversationId } = args as { conversationId: number };
+          try {
+            const conversation = await prisma.conversation.findUnique({
+              where: { id: conversationId },
+            });
+
+            await SendDiscordNotificationJob.performLater({
+              conversationId,
+              conversationTitle: conversation?.title || undefined,
+              status: "failed",
+              error: errorMessage,
+            }, { priority: 10 });
+          } catch (notifyErr) {
+            // Don't crash if notification fails
+            console.error(`Failed to enqueue Discord notification: ${notifyErr instanceof Error ? notifyErr.message : String(notifyErr)}`);
+          }
+        }
       } catch (failErr) {
         // We couldn't mark the job as failed - log and continue
         // The job will remain in "processing" state and eventually be reset by resetStaleJobs

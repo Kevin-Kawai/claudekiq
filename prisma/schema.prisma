@@ -79,8 +79,9 @@ model Conversation {
   queryOptions String?    // JSON string: { additionalDirectories?: string[], allowedTools?: string[] }
 
   // Relations
-  messages Message[]
-  jobs     Job[]
+  messages      Message[]
+  jobs          Job[]
+  discordThread DiscordThreadMapping?
 
   @@index([status, updatedAt])
   @@index([workspaceId])
@@ -138,4 +139,15 @@ model ConversationTemplate {
   updatedAt             DateTime @updatedAt
 
   @@index([name])
+}
+
+model DiscordThreadMapping {
+  id             Int          @id @default(autoincrement())
+  threadId       String       @unique // Discord thread ID
+  channelId      String       // Parent channel ID
+  conversationId Int          @unique // One thread per conversation
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
 }

@@ -12,9 +12,9 @@
  * - CLAUDEKIQ_BASE_URL: Base URL for conversation links
  */
 
-import { Client, GatewayIntentBits, Events, Message } from "discord.js";
+import { Client, GatewayIntentBits, Events, Message, ThreadChannel } from "discord.js";
 import { prisma } from "./queue";
-import { ConversationMessageJob, LockDiscordThreadJob } from "./jobs";
+import { ConversationMessageJob } from "./jobs";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
@@ -85,10 +85,15 @@ client.on(Events.MessageCreate, async (message: Message) => {
     // React to show we received the message
     await message.react("👀");
 
-    // Lock the thread while processing
-    await LockDiscordThreadJob.performLater({
-      conversationId: mapping.conversationId,
-    }, { priority: 100 }); // High priority to lock quickly
+    // Lock the thread immediately (not via job) to prevent race conditions
+    try {
+      const thread = message.channel as ThreadChannel;
+      await thread.setLocked(true);
+      console.log(`Locked thread ${thread.id}`);
+    } catch (lockErr) {
+      console.error("Failed to lock thread:", lockErr);
+      // Continue anyway - locking is nice-to-have
+    }
 
     // Enqueue the conversation message job
     await ConversationMessageJob.performLater({

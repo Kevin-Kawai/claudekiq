@@ -64,6 +64,7 @@ export const ConversationMessageJob = defineJob<ConversationMessageJobArgs>(
       claudekiq: {
         command: "sh",
         args: ["-c", "cd /home/kevin/Projects/claudekiq && npm run mcp"]
+      },
       todoist: {
         "command": "npx",
         "args": ["-y", "mcp-remote", "https://ai.todoist.net/mcp"]

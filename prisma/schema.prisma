@@ -66,6 +66,7 @@ model Conversation {
   sessionId   String?    // Claude session ID for resuming
   cwd         String?    // Working directory for the session (worktree path if using worktree)
   status      String     @default("active") // active, closed
+  isArchived  Boolean    @default(false)    // Whether conversation is archived (hidden from default view)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
@@ -85,6 +86,7 @@ model Conversation {
 
   @@index([status, updatedAt])
   @@index([workspaceId])
+  @@index([isArchived, updatedAt])
 }
 
 model Message {

@@ -653,6 +653,7 @@ export interface Conversation {
   sessionId: string | null;
   cwd: string | null;
   status: string;
+  isArchived: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -708,13 +709,21 @@ export async function getConversation(id: number) {
 
 /**
  * Get conversations, optionally filtered by workspace with pagination
+ * @param workspaceId - Filter by workspace ID
+ * @param limit - Number of conversations per page
+ * @param page - Page number
+ * @param includeArchived - Whether to include archived conversations (default: false)
  */
-export async function getConversations(workspaceId?: number, limit = 5, page = 1) {
+export async function getConversations(workspaceId?: number, limit = 5, page = 1, includeArchived = false) {
   const skip = (page - 1) * limit;
+  const whereClause = {
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(!includeArchived ? { isArchived: false } : {}),
+  };
   const [conversations, total] = await withRetry(
     () => Promise.all([
       prisma.conversation.findMany({
-        where: workspaceId ? { workspaceId } : undefined,
+        where: whereClause,
         orderBy: { updatedAt: "desc" },
         skip,
         take: limit,
@@ -730,7 +739,7 @@ export async function getConversations(workspaceId?: number, limit = 5, page = 1
         },
       }),
       prisma.conversation.count({
-        where: workspaceId ? { workspaceId } : undefined,
+        where: whereClause,
       }),
     ]),
     { operationName: "getConversations" }
@@ -807,6 +816,71 @@ export async function closeConversation(id: number): Promise<Conversation> {
     }),
     { operationName: `closeConversation(${id})` }
   );
+}
+
+/**
+ * Archive a conversation (hides from default view)
+ */
+export async function archiveConversation(id: number): Promise<Conversation> {
+  return withRetry(
+    () => prisma.conversation.update({
+      where: { id },
+      data: { isArchived: true },
+    }),
+    { operationName: `archiveConversation(${id})` }
+  );
+}
+
+/**
+ * Unarchive a conversation (restores to default view)
+ */
+export async function unarchiveConversation(id: number): Promise<Conversation> {
+  return withRetry(
+    () => prisma.conversation.update({
+      where: { id },
+      data: { isArchived: false },
+    }),
+    { operationName: `unarchiveConversation(${id})` }
+  );
+}
+
+/**
+ * Archive multiple conversations by IDs
+ */
+export async function archiveConversations(ids: number[]): Promise<number> {
+  const result = await withRetry(
+    () => prisma.conversation.updateMany({
+      where: { id: { in: ids } },
+      data: { isArchived: true },
+    }),
+    { operationName: `archiveConversations(${ids.length} conversations)` }
+  );
+  return result.count;
+}
+
+/**
+ * Archive old conversations based on last activity
+ * @param olderThanDays - Archive conversations that haven't been updated in this many days
+ * @param workspaceId - Optional: only archive conversations in this workspace
+ */
+export async function archiveOldConversations(olderThanDays: number, workspaceId?: number): Promise<number> {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+  const whereClause = {
+    updatedAt: { lt: cutoffDate },
+    isArchived: false,
+    ...(workspaceId ? { workspaceId } : {}),
+  };
+
+  const result = await withRetry(
+    () => prisma.conversation.updateMany({
+      where: whereClause,
+      data: { isArchived: true },
+    }),
+    { operationName: `archiveOldConversations(olderThan=${olderThanDays}days)` }
+  );
+  return result.count;
 }
 
 // ============ Workspace Functions ============

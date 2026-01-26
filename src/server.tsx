@@ -27,6 +27,8 @@ import {
   createTemplate,
   updateTemplate,
   deleteTemplate,
+  archiveConversation,
+  unarchiveConversation,
 } from "./queue";
 import {
   getRegisteredJobs,
@@ -157,6 +159,9 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         .conversation-status { padding: 2px 8px; border-radius: 4px; font-size: 11px; }
         .conversation-status.active { background: #d1fae5; color: #065f46; }
         .conversation-status.closed { background: #e5e7eb; color: #374151; }
+        .conversation-archived { background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; }
+        .show-archived-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; cursor: pointer; }
+        .show-archived-toggle input { cursor: pointer; }
         .pagination { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid #e5e7eb; }
         .pagination button { padding: 6px 12px; border: 1px solid #d1d5db; background: white; border-radius: 4px; cursor: pointer; font-size: 13px; }
         .pagination button:hover:not(:disabled) { background: #f3f4f6; }
@@ -1318,10 +1323,17 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         // ============ Conversations ============
         var selectedWorkspaceId = null;
         var currentConversationPage = 1;
+        var showArchivedConversations = false;
 
         function onConversationWorkspaceChange() {
           var select = document.getElementById('conversation-workspace-filter');
           selectedWorkspaceId = select.value ? parseInt(select.value) : null;
+          currentConversationPage = 1;
+          fetchConversations();
+        }
+
+        function onShowArchivedChange() {
+          showArchivedConversations = document.getElementById('show-archived-toggle').checked;
           currentConversationPage = 1;
           fetchConversations();
         }
@@ -1338,6 +1350,9 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             var url = '/api/conversations?page=' + currentConversationPage;
             if (selectedWorkspaceId) {
               url += '&workspaceId=' + selectedWorkspaceId;
+            }
+            if (showArchivedConversations) {
+              url += '&includeArchived=true';
             }
             var res = await fetch(url);
             var data = await res.json();
@@ -1365,10 +1380,12 @@ const Layout: FC<{ children: any }> = ({ children }) => (
               var branchBadge = conv.worktreeBranch ? '<span style="background:#e0f2fe;color:#0369a1;padding:2px 6px;border-radius:4px;font-size:11px;font-family:monospace;">' + escapeHtml(conv.worktreeBranch) + '</span>' : '';
               // Show workspace badge when viewing all conversations (no filter)
               var workspaceBadge = !selectedWorkspaceId && conv.workspace ? '<span style="background:#f0fdf4;color:#166534;padding:2px 6px;border-radius:4px;font-size:11px;">' + escapeHtml(conv.workspace.name) + '</span>' : '';
+              // Show archived badge
+              var archivedBadge = conv.isArchived ? '<span class="conversation-archived">archived</span>' : '';
 
               return '<a class="conversation-item" href="/conversations/' + conv.id + '">' +
                 '<div class="conversation-info">' +
-                  '<div class="conversation-title">' + escapeHtml(title) + ' ' + branchBadge + ' ' + workspaceBadge + '</div>' +
+                  '<div class="conversation-title">' + escapeHtml(title) + ' ' + branchBadge + ' ' + workspaceBadge + archivedBadge + '</div>' +
                   '<div class="conversation-preview">' + escapeHtml(preview) + '</div>' +
                 '</div>' +
                 '<div class="conversation-meta">' +
@@ -1851,6 +1868,10 @@ const ConversationsList: FC = () => (
         <select id="conversation-workspace-filter" onchange="onConversationWorkspaceChange()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
           <option value="">-- Select workspace --</option>
         </select>
+        <label class="show-archived-toggle">
+          <input type="checkbox" id="show-archived-toggle" onchange="onShowArchivedChange()" />
+          Show archived
+        </label>
         <button class="add-job-btn export" onclick="openNewConversationModal()">+ New Conversation</button>
       </div>
     </div>
@@ -2268,6 +2289,8 @@ const Dashboard: FC = () => (
 const JobDetailsPage: FC<{ jobId: string }> = ({ jobId }) => (
   <html>
     <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       <title>Job Details - #{jobId}</title>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2616,9 +2639,9 @@ const JobDetailsPage: FC<{ jobId: string }> = ({ jobId }) => (
           }
         }
 
-        // Handle Enter key in textarea (Shift+Enter for newline)
+        // Handle Ctrl+Enter to send message (Enter for newline)
         document.addEventListener('keydown', function(e) {
-          if (e.target.id === 'follow-up-input' && e.key === 'Enter' && !e.shiftKey) {
+          if (e.target.id === 'follow-up-input' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             sendFollowUp();
           }
@@ -2648,192 +2671,354 @@ const JobDetailsPage: FC<{ jobId: string }> = ({ jobId }) => (
 const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId }) => (
   <html>
     <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       <title>Conversation #{conversationId}</title>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        .header { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
-        .header h1 { font-size: 24px; }
-        .back-link { color: #666; text-decoration: none; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 24px; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 18px; margin-bottom: 24px; }
+        .header h1 { font-size: 26px; }
+        .back-link { color: #666; text-decoration: none; font-size: 15px; }
         .back-link:hover { color: #333; }
-        .conv-info { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .conv-info h2 { margin-bottom: 15px; font-size: 18px; }
-        .info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+        .conv-info { background: white; border-radius: 10px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .conv-info h2 { margin-bottom: 18px; font-size: 20px; }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
         .info-item { }
-        .info-label { font-size: 12px; color: #666; text-transform: uppercase; }
-        .info-value { font-size: 14px; font-weight: 500; }
-        .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .info-label { font-size: 13px; color: #666; text-transform: uppercase; margin-bottom: 4px; }
+        .info-value { font-size: 15px; font-weight: 500; }
+        .status { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 13px; }
         .status-active { background: #d1fae5; color: #065f46; }
         .status-closed { background: #e5e7eb; color: #374151; }
-        .conversation { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
-        .conversation h2 { margin-bottom: 15px; font-size: 18px; flex-shrink: 0; }
-        .messages { flex: 1; min-height: 300px; max-height: calc(100vh - 400px); overflow-y: auto; border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
-        .message { margin-bottom: 15px; padding: 10px 15px; border-radius: 8px; }
+        .conversation { background: white; border-radius: 10px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        .conversation h2 { margin-bottom: 18px; font-size: 20px; flex-shrink: 0; }
+        .messages { flex: 1; min-height: 350px; max-height: calc(100vh - 380px); overflow-y: auto; border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 18px; }
+        .message { margin-bottom: 18px; padding: 14px 18px; border-radius: 10px; }
         .message:last-child { margin-bottom: 0; }
-        .message-user { background: #e3f2fd; margin-left: 50px; }
-        .message-assistant { background: #f5f5f5; margin-right: 50px; }
-        .message-system { background: #fff8e1; font-size: 12px; color: #666; }
-        .message-result { background: #e8f5e9; font-size: 12px; }
-        .message-label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 5px; }
-        .message-content { white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.5; }
-        .tool-use { background: #f0f0f0; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 12px; }
+        .message-user { background: #e3f2fd; margin-left: 60px; }
+        .message-assistant { background: #f5f5f5; margin-right: 60px; }
+        .message-system { background: #fff8e1; font-size: 13px; color: #666; }
+        .message-result { background: #e8f5e9; font-size: 13px; }
+        .message-label { font-size: 12px; color: #666; text-transform: uppercase; margin-bottom: 6px; }
+        .message-content { white-space: pre-wrap; word-break: break-word; font-size: 15px; line-height: 1.6; }
+        .tool-use { background: #f0f0f0; padding: 10px; border-radius: 6px; margin-top: 10px; font-size: 13px; }
         .tool-name { font-weight: 600; color: #1976d2; }
-        .follow-up { display: flex; gap: 10px; }
-        .follow-up textarea { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; resize: vertical; min-height: 60px; font-family: inherit; font-size: 14px; }
-        .follow-up button { padding: 10px 20px; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .follow-up { display: flex; gap: 12px; }
+        .follow-up textarea { flex: 1; padding: 14px; border: 1px solid #ddd; border-radius: 10px; resize: vertical; min-height: 80px; font-family: inherit; font-size: 15px; }
+        .follow-up button { padding: 14px 24px; background: #1976d2; color: white; border: none; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 500; }
         .follow-up button:hover { background: #1565c0; }
         .follow-up button:disabled { background: #ccc; cursor: not-allowed; }
-        .loading { text-align: center; padding: 40px; color: #666; }
-        .error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
-        .processing-indicator { background: #fff3cd; color: #856404; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-        .processing-indicator .spinner { width: 16px; height: 16px; border: 2px solid #856404; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+        .loading { text-align: center; padding: 50px; color: #666; font-size: 15px; }
+        .error { background: #f8d7da; color: #721c24; padding: 18px; border-radius: 10px; margin-bottom: 18px; font-size: 15px; }
+        .processing-indicator { background: #fff3cd; color: #856404; padding: 14px 18px; border-radius: 10px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; font-size: 15px; }
+        .processing-indicator .spinner { width: 18px; height: 18px; border: 2px solid #856404; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .follow-up-container { margin-top: 10px; }
-        .schedule-options { margin-top: 10px; padding: 12px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
-        .schedule-options .form-group { margin-bottom: 10px; }
+        .follow-up-container { margin-top: 14px; }
+        .schedule-options { margin-top: 14px; padding: 16px; background: #f9fafb; border-radius: 10px; border: 1px solid #e5e7eb; }
+        .schedule-options .form-group { margin-bottom: 14px; }
         .schedule-options .form-group:last-child { margin-bottom: 0; }
-        .schedule-options label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 500; color: #374151; }
-        .schedule-options input, .schedule-options select { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
-        .schedule-options small { color: #6b7280; font-size: 11px; }
-        .checkbox-label { display: flex; align-items: center; cursor: pointer; font-size: 13px; color: #374151; }
-        .checkbox-label input { width: auto; margin-right: 8px; }
-        .conv-options { margin-top: 15px; border-top: 1px solid #e5e7eb; padding-top: 15px; }
+        .schedule-options label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: #374151; }
+        .schedule-options input, .schedule-options select { width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
+        .schedule-options small { color: #6b7280; font-size: 12px; }
+        .checkbox-label { display: flex; align-items: center; cursor: pointer; font-size: 14px; color: #374151; }
+        .checkbox-label input { width: auto; margin-right: 10px; }
+        .conv-options { margin-top: 18px; border-top: 1px solid #e5e7eb; padding-top: 18px; }
         .conv-options-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
-        .conv-options-header h3 { font-size: 14px; font-weight: 500; color: #374151; margin: 0; }
-        .conv-options-toggle { background: none; border: none; color: #6b7280; cursor: pointer; font-size: 12px; }
-        .conv-options-content { margin-top: 12px; display: none; }
+        .conv-options-header h3 { font-size: 15px; font-weight: 500; color: #374151; margin: 0; }
+        .conv-options-toggle { background: none; border: none; color: #6b7280; cursor: pointer; font-size: 13px; }
+        .conv-options-content { margin-top: 16px; display: none; }
         .conv-options-content.open { display: block; }
-        .conv-options .form-group { margin-bottom: 12px; }
+        .conv-options .form-group { margin-bottom: 16px; }
         .conv-options .form-group:last-child { margin-bottom: 0; }
-        .conv-options label { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 500; color: #374151; }
-        .conv-options small { color: #6b7280; font-size: 11px; display: block; margin-top: 4px; }
-        .conv-options .dir-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-        .conv-options .dir-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e0f2fe; color: #0369a1; border-radius: 4px; font-size: 11px; font-family: monospace; }
-        .conv-options .dir-tag button { background: none; border: none; color: #0369a1; cursor: pointer; font-size: 12px; padding: 0; line-height: 1; }
-        .conv-options .tool-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #fef3c7; color: #92400e; border-radius: 4px; font-size: 11px; font-family: monospace; }
-        .conv-options .tool-tag button { background: none; border: none; color: #92400e; cursor: pointer; font-size: 12px; padding: 0; line-height: 1; }
-        .conv-options .add-row { display: flex; gap: 6px; margin-top: 6px; }
-        .conv-options .add-row input { flex: 1; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; }
-        .conv-options .add-row button { padding: 6px 12px; background: #e5e7eb; color: #374151; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .conv-options label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: #374151; }
+        .conv-options small { color: #6b7280; font-size: 12px; display: block; margin-top: 6px; }
+        .conv-options .dir-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .conv-options .dir-tag { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; background: #e0f2fe; color: #0369a1; border-radius: 6px; font-size: 12px; font-family: monospace; }
+        .conv-options .dir-tag button { background: none; border: none; color: #0369a1; cursor: pointer; font-size: 13px; padding: 0; line-height: 1; }
+        .conv-options .tool-tag { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; background: #fef3c7; color: #92400e; border-radius: 6px; font-size: 12px; font-family: monospace; }
+        .conv-options .tool-tag button { background: none; border: none; color: #92400e; cursor: pointer; font-size: 13px; padding: 0; line-height: 1; }
+        .conv-options .add-row { display: flex; gap: 8px; margin-top: 8px; }
+        .conv-options .add-row input { flex: 1; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; }
+        .conv-options .add-row button { padding: 10px 16px; background: #e5e7eb; color: #374151; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; }
         .conv-options .add-row button:hover { background: #d1d5db; }
-        .conv-options .save-btn { margin-top: 12px; padding: 8px 16px; background: #1976d2; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        .conv-options .save-btn { margin-top: 16px; padding: 12px 20px; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
         .conv-options .save-btn:hover { background: #1565c0; }
         .conv-options .save-btn:disabled { background: #ccc; cursor: not-allowed; }
-        .conv-options .tools-checkboxes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-        .conv-options .tools-checkboxes .checkbox-label { display: flex; align-items: center; gap: 4px; font-size: 12px; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+        .conv-options .tools-checkboxes { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+        .conv-options .tools-checkboxes .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; background: #f3f4f6; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
         .conv-options .tools-checkboxes .checkbox-label input { margin: 0; }
+
+        /* ============ Large Screen Styles ============ */
+        @media (min-width: 1400px) {
+          .container { max-width: 1300px; }
+          .messages { max-height: calc(100vh - 350px); }
+        }
 
         /* ============ Mobile Responsive Styles for Conversation Detail ============ */
         @media (max-width: 768px) {
-          body { padding: 12px; }
-          .container { max-width: 100%; }
+          body { padding: 0; background: #f5f5f5; }
+          .container { max-width: 100%; padding: 0; }
 
-          /* Header */
+          /* Header - sticky at top */
           .header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 10px;
-            margin-bottom: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: white;
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 0;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
           }
-          .header h1 { font-size: 18px; word-break: break-word; }
-          #pause-btn { margin-left: 0 !important; width: 100%; }
+          .back-link { font-size: 14px; }
+          .header h1 {
+            font-size: 16px;
+            word-break: break-word;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          #pause-btn {
+            margin-left: 0 !important;
+            padding: 8px 12px;
+            font-size: 13px;
+          }
 
-          /* Conversation Info */
-          .conv-info { padding: 14px; margin-bottom: 14px; }
-          .conv-info h2 { font-size: 16px; margin-bottom: 12px; }
+          /* Conversation Info - collapsible style */
+          .conv-info {
+            padding: 12px 16px;
+            margin: 0;
+            border-radius: 0;
+            box-shadow: none;
+            border-bottom: 1px solid #e5e7eb;
+          }
+          .conv-info h2 { font-size: 14px; margin-bottom: 10px; }
           .info-grid {
             grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
+            gap: 8px;
           }
-          .info-label { font-size: 10px; }
-          .info-value { font-size: 13px; }
+          .info-label { font-size: 10px; margin-bottom: 2px; }
+          .info-value { font-size: 13px; word-break: break-word; }
 
           /* Conversation Options */
           .conv-options { margin-top: 12px; padding-top: 12px; }
-          .conv-options-header h3 { font-size: 13px; }
+          .conv-options-header h3 { font-size: 14px; }
           .conv-options .form-group { margin-bottom: 14px; }
-          .conv-options label { font-size: 11px; }
-          .conv-options small { font-size: 10px; }
-          .conv-options .dir-list { gap: 4px; }
-          .conv-options .dir-tag { font-size: 10px; padding: 3px 6px; max-width: 100%; word-break: break-all; }
-          .conv-options .tool-tag { font-size: 10px; padding: 3px 6px; }
-          .conv-options .add-row { flex-direction: column; gap: 6px; }
-          .conv-options .add-row input { width: 100%; padding: 10px 12px; font-size: 16px; }
-          .conv-options .add-row button { width: 100%; padding: 10px 12px; font-size: 14px; }
-          .conv-options .tools-checkboxes { gap: 6px; }
-          .conv-options .tools-checkboxes .checkbox-label { font-size: 11px; padding: 6px 8px; }
-          .conv-options .save-btn { width: 100%; padding: 12px 16px; font-size: 14px; }
+          .conv-options label { font-size: 13px; }
+          .conv-options small { font-size: 11px; }
+          .conv-options .dir-list { gap: 6px; }
+          .conv-options .dir-tag { font-size: 11px; padding: 6px 10px; max-width: 100%; word-break: break-all; }
+          .conv-options .tool-tag { font-size: 11px; padding: 6px 10px; }
+          .conv-options .add-row { flex-direction: column; gap: 8px; }
+          .conv-options .add-row input { width: 100%; padding: 12px 14px; font-size: 16px; }
+          .conv-options .add-row button { width: 100%; padding: 12px 14px; font-size: 15px; }
+          .conv-options .tools-checkboxes { gap: 8px; }
+          .conv-options .tools-checkboxes .checkbox-label { font-size: 13px; padding: 8px 12px; }
+          .conv-options .save-btn { width: 100%; padding: 14px 16px; font-size: 15px; }
 
-          /* Messages Container */
-          .conversation { padding: 14px; }
-          .conversation h2 { font-size: 16px; margin-bottom: 12px; }
+          /* Messages Container - full width, more height */
+          .conversation {
+            padding: 0;
+            border-radius: 0;
+            box-shadow: none;
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 200px);
+            background: white;
+          }
+          .conversation h2 {
+            font-size: 14px;
+            margin: 0;
+            padding: 12px 16px;
+            border-bottom: 1px solid #eee;
+            background: #fafafa;
+          }
           .messages {
-            min-height: 200px;
-            max-height: calc(100vh - 350px);
-            padding: 10px;
+            flex: 1;
+            min-height: 0;
+            max-height: none;
+            height: calc(100vh - 280px);
+            padding: 12px;
+            border: none;
+            border-radius: 0;
+            margin: 0;
+            -webkit-overflow-scrolling: touch;
           }
 
-          /* Message Bubbles */
-          .message { padding: 10px 12px; margin-bottom: 12px; }
-          .message-user { margin-left: 20px; }
-          .message-assistant { margin-right: 20px; }
-          .message-label { font-size: 10px; margin-bottom: 4px; }
-          .message-content { font-size: 13px; line-height: 1.5; }
-          .tool-use { padding: 6px; margin-top: 6px; font-size: 11px; }
-          .tool-name { font-size: 11px; }
+          /* Message Bubbles - full width on mobile */
+          .message {
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            border-radius: 12px;
+          }
+          .message-user {
+            margin-left: 0;
+            margin-right: 0;
+            background: #e3f2fd;
+            border-left: 3px solid #1976d2;
+          }
+          .message-assistant {
+            margin-left: 0;
+            margin-right: 0;
+            background: #f8f9fa;
+            border-left: 3px solid #6b7280;
+          }
+          .message-system {
+            border-left: 3px solid #f59e0b;
+          }
+          .message-result {
+            border-left: 3px solid #10b981;
+          }
+          .message-label { font-size: 11px; margin-bottom: 6px; font-weight: 600; }
+          .message-content { font-size: 15px; line-height: 1.6; }
+          .tool-use { padding: 10px; margin-top: 10px; font-size: 13px; border-radius: 8px; }
+          .tool-name { font-size: 13px; }
 
           /* Processing Indicator */
-          .processing-indicator { padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
-          .processing-indicator .spinner { width: 14px; height: 14px; }
+          .processing-indicator {
+            padding: 12px 16px;
+            font-size: 14px;
+            margin: 0;
+            border-radius: 0;
+            border-bottom: 1px solid #fcd34d;
+          }
+          .processing-indicator .spinner { width: 16px; height: 16px; }
 
-          /* Follow-up Form */
-          .follow-up { flex-direction: column; gap: 8px; }
+          /* Follow-up Form - sticky at bottom */
+          .follow-up-container {
+            margin: 0;
+            padding: 10px 12px;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+            position: sticky;
+            bottom: 0;
+            z-index: 100;
+          }
+          .follow-up {
+            flex-direction: row;
+            align-items: flex-end;
+            gap: 8px;
+          }
           .follow-up textarea {
-            min-height: 80px;
-            padding: 12px;
+            flex: 1;
+            min-height: 44px;
+            max-height: 150px;
+            padding: 10px 16px;
             font-size: 16px; /* Prevents iOS zoom */
+            border-radius: 22px;
+            border: 1px solid #d1d5db;
+            background: #f3f4f6;
+            line-height: 1.4;
+            resize: none;
+            overflow-y: auto;
+            -webkit-appearance: none;
+          }
+          .follow-up textarea:focus {
+            outline: none;
+            border-color: #1976d2;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1);
+          }
+          .follow-up textarea::placeholder {
+            color: #9ca3af;
           }
           .follow-up button {
-            width: 100%;
-            padding: 14px 20px;
-            font-size: 15px;
+            flex-shrink: 0;
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            padding: 0;
+            font-size: 0;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
           }
-          .follow-up-container { margin-top: 12px; }
+          .follow-up button::before {
+            content: "↑";
+            font-size: 20px;
+            font-weight: bold;
+          }
+          .follow-up button:disabled {
+            background: #e5e7eb;
+          }
+          .follow-up button:disabled::before {
+            color: #9ca3af;
+          }
 
           /* Schedule Options */
-          .schedule-options { padding: 10px; margin-top: 8px; }
-          .schedule-options .form-group { margin-bottom: 10px; }
-          .schedule-options label { font-size: 12px; }
+          .schedule-options { padding: 14px; margin-top: 10px; border-radius: 12px; }
+          .schedule-options .form-group { margin-bottom: 12px; }
+          .schedule-options label { font-size: 14px; }
           .schedule-options input, .schedule-options select {
-            padding: 10px 12px;
+            padding: 14px;
             font-size: 16px; /* Prevents iOS zoom */
+            border-radius: 10px;
           }
-          .schedule-options small { font-size: 10px; }
+          .schedule-options small { font-size: 12px; }
 
           /* Max turns field */
           .form-group input[type="number"] {
             width: 100% !important;
-            padding: 10px 12px;
+            padding: 14px;
             font-size: 16px;
           }
 
-          /* Checkbox labels in follow-up */
-          .checkbox-label { font-size: 13px; }
-          .checkbox-label input { width: 18px; height: 18px; }
+          /* Checkbox labels - larger touch targets */
+          .checkbox-label {
+            font-size: 15px;
+            padding: 8px 0;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+          }
+          .checkbox-label input {
+            width: 22px;
+            height: 22px;
+            margin-right: 12px;
+          }
 
           /* Error and Loading states */
-          .loading, .error { padding: 20px; font-size: 14px; }
+          .loading, .error { padding: 24px 16px; font-size: 15px; }
+          .error { margin: 12px 16px; border-radius: 12px; }
         }
 
         @media (max-width: 480px) {
-          body { padding: 8px; }
-          .header h1 { font-size: 16px; }
-          .info-grid { grid-template-columns: 1fr; gap: 8px; }
-          .message-user { margin-left: 10px; }
-          .message-assistant { margin-right: 10px; }
-          .message-content { font-size: 12px; }
-          .messages { max-height: calc(100vh - 320px); }
+          .header h1 { font-size: 15px; }
+          .info-grid { grid-template-columns: 1fr; gap: 10px; }
+          .info-value { font-size: 14px; }
+          .messages {
+            height: calc(100vh - 240px);
+            padding: 10px;
+          }
+          .message-content { font-size: 14px; }
+          .follow-up-container { padding: 8px 10px; }
+          .follow-up { gap: 6px; }
+          .follow-up textarea {
+            min-height: 40px;
+            padding: 10px 14px;
+          }
+          .follow-up button {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+          }
+        }
+
+        /* Safe area insets for notched phones */
+        @supports (padding-bottom: env(safe-area-inset-bottom)) {
+          @media (max-width: 768px) {
+            .follow-up-container {
+              padding-bottom: calc(12px + env(safe-area-inset-bottom));
+            }
+          }
         }
       `}</style>
     </head>
@@ -2897,6 +3082,12 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             if (!res.ok) throw new Error('Conversation not found');
             const conv = await res.json();
             var newMessageCount = conv.messages ? conv.messages.length : 0;
+
+            // Skip re-render entirely if user is typing and nothing has changed
+            // This prevents DOM jitter while typing, especially on mobile
+            if (wasFocused && newMessageCount === lastMessageCount) {
+              return;
+            }
 
             // If user is interacting with scheduling form or options, only update messages
             if ((isInteractingWithSchedule || isInteractingWithOptions) && messagesEl) {
@@ -3023,13 +3214,17 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           }
         }
 
+        // Store current conversation's archive state
+        var currentConvIsArchived = false;
+
         function renderConversation(conv) {
           const hasActiveJob = conv.jobs && conv.jobs.some(j => j.status === 'processing' || j.status === 'pending');
+          currentConvIsArchived = conv.isArchived;
 
           updateTitleDisplay(conv.title);
 
           let html = '<div class="conv-info"><h2>Conversation Info</h2><div class="info-grid">';
-          html += '<div class="info-item"><div class="info-label">Status</div><div class="info-value"><span class="status status-' + conv.status + '">' + conv.status + '</span></div></div>';
+          html += '<div class="info-item"><div class="info-label">Status</div><div class="info-value"><span class="status status-' + conv.status + '">' + conv.status + '</span>' + (conv.isArchived ? '<span class="conversation-archived" style="margin-left:8px;">archived</span>' : '') + '</div></div>';
           html += '<div class="info-item"><div class="info-label">Created</div><div class="info-value">' + new Date(conv.createdAt).toLocaleString() + '</div></div>';
           html += '<div class="info-item"><div class="info-label">Messages</div><div class="info-value">' + conv.messages.length + '</div></div>';
           if (conv.workspace) {
@@ -3040,6 +3235,12 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           }
           if (conv.cwd) {
             html += '<div class="info-item"><div class="info-label">Working Directory</div><div class="info-value" style="font-size:12px;word-break:break-all;">' + escapeHtml(conv.cwd) + '</div></div>';
+          }
+          // Archive action
+          if (conv.isArchived) {
+            html += '<div class="info-item"><div class="info-label">Archive</div><div class="info-value"><button onclick="unarchiveConversation()" style="padding:6px 12px;background:#10b981;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">Unarchive</button></div></div>';
+          } else {
+            html += '<div class="info-item"><div class="info-label">Archive</div><div class="info-value"><button onclick="archiveConversation()" style="padding:6px 12px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;">Archive</button></div></div>';
           }
           html += '</div>';
 
@@ -3166,6 +3367,44 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           var div = document.createElement('div');
           div.textContent = text;
           return div.innerHTML;
+        }
+
+        // Archive/Unarchive functions
+        async function archiveConversation() {
+          if (!confirm('Archive this conversation? It will be hidden from the default view but can be restored later.')) return;
+          try {
+            var res = await fetch('/api/conversations/' + conversationId + '/archive', {
+              method: 'POST'
+            });
+            if (!res.ok) {
+              var data = await res.json();
+              alert('Failed to archive: ' + (data.error || 'Unknown error'));
+              return;
+            }
+            currentConvIsArchived = true;
+            fetchConversation();
+          } catch (e) {
+            console.error('Failed to archive conversation:', e);
+            alert('Failed to archive conversation');
+          }
+        }
+
+        async function unarchiveConversation() {
+          try {
+            var res = await fetch('/api/conversations/' + conversationId + '/unarchive', {
+              method: 'POST'
+            });
+            if (!res.ok) {
+              var data = await res.json();
+              alert('Failed to unarchive: ' + (data.error || 'Unknown error'));
+              return;
+            }
+            currentConvIsArchived = false;
+            fetchConversation();
+          } catch (e) {
+            console.error('Failed to unarchive conversation:', e);
+            alert('Failed to unarchive conversation');
+          }
         }
 
         // Conversation options state
@@ -3396,19 +3635,57 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           }
         }
 
+        // Handle Ctrl+Enter to send message (Enter for newline)
         document.addEventListener('keydown', function(e) {
-          if (e.target.id === 'follow-up-input' && e.key === 'Enter' && !e.shiftKey) {
+          if (e.target.id === 'follow-up-input' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             sendMessage();
+          }
+        });
+
+        // Auto-resize textarea as user types
+        function autoResizeTextarea(textarea) {
+          if (!textarea) return;
+          textarea.style.height = 'auto';
+          var newHeight = Math.min(textarea.scrollHeight, 150);
+          textarea.style.height = newHeight + 'px';
+        }
+
+        document.addEventListener('input', function(e) {
+          if (e.target.id === 'follow-up-input') {
+            autoResizeTextarea(e.target);
+          }
+        });
+
+        // Also handle paste events
+        document.addEventListener('paste', function(e) {
+          if (e.target.id === 'follow-up-input') {
+            setTimeout(function() { autoResizeTextarea(e.target); }, 0);
           }
         });
 
         fetchConversation();
 
         var pollingPaused = false;
+        var pollingPausedByFocus = false;
         setInterval(function() {
-          if (!pollingPaused) fetchConversation();
+          if (!pollingPaused && !pollingPausedByFocus) fetchConversation();
         }, 3000);
+
+        // Pause polling when user is focused on the input to prevent jitter
+        document.addEventListener('focusin', function(e) {
+          if (e.target.id === 'follow-up-input') {
+            pollingPausedByFocus = true;
+          }
+        });
+        document.addEventListener('focusout', function(e) {
+          if (e.target.id === 'follow-up-input') {
+            // Small delay before resuming to avoid immediate re-render
+            setTimeout(function() {
+              pollingPausedByFocus = false;
+            }, 500);
+          }
+        });
 
         function togglePolling() {
           pollingPaused = !pollingPaused;
@@ -3661,10 +3938,12 @@ app.get("/api/conversations", async (c) => {
   const workspaceId = c.req.query("workspaceId");
   const limit = parseInt(c.req.query("limit") || "5", 10);
   const page = parseInt(c.req.query("page") || "1", 10);
+  const includeArchived = c.req.query("includeArchived") === "true";
   const result = await getConversations(
     workspaceId ? parseInt(workspaceId, 10) : undefined,
     limit,
-    page
+    page,
+    includeArchived
   );
   return c.json(result);
 });
@@ -3855,6 +4134,28 @@ app.post("/api/conversations/:id/messages", async (c) => {
       Object.keys(scheduleOptions).length > 0 ? scheduleOptions : undefined
     );
     return c.json({ job, message: "Message queued for processing" }, 202);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Archive a conversation
+app.post("/api/conversations/:id/archive", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  try {
+    const conversation = await archiveConversation(id);
+    return c.json(conversation);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Unarchive a conversation
+app.post("/api/conversations/:id/unarchive", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  try {
+    const conversation = await unarchiveConversation(id);
+    return c.json(conversation);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
   }

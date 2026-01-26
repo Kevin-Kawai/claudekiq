@@ -38,6 +38,10 @@ import {
   createToolset,
   updateToolset,
   deleteToolset,
+  archiveConversation,
+  unarchiveConversation,
+  archiveConversations,
+  archiveOldConversations,
 } from "./queue";
 import {
   getRegisteredJobs,
@@ -1183,7 +1187,7 @@ server.registerTool(
 server.registerTool(
   "list_conversations",
   {
-    description: "List conversations with their status and message count, optionally filtered by workspace",
+    description: "List conversations with their status and message count, optionally filtered by workspace. By default, archived conversations are hidden.",
     inputSchema: {
       workspaceId: z
         .number()
@@ -1194,10 +1198,15 @@ server.registerTool(
         .optional()
         .default(20)
         .describe("Maximum number of conversations to return (default: 20)"),
+      includeArchived: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Include archived conversations in the results (default: false)"),
     },
   },
-  async ({ workspaceId, limit }) => {
-    const data = await getConversations(workspaceId, limit);
+  async ({ workspaceId, limit, includeArchived }) => {
+    const data = await getConversations(workspaceId, limit, 1, includeArchived);
 
     if (data.conversations.length === 0) {
       return {
@@ -1214,6 +1223,7 @@ server.registerTool(
       id: conv.id,
       title: conv.title || `Conversation #${conv.id}`,
       status: conv.status,
+      isArchived: conv.isArchived,
       messageCount: conv._count?.messages || 0,
       workspace: conv.workspace?.name || null,
       worktreeBranch: conv.worktreeBranch || null,
@@ -1635,6 +1645,155 @@ server.registerTool(
           {
             type: "text" as const,
             text: responseText,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Archive a conversation
+server.registerTool(
+  "archive_conversation",
+  {
+    description: "Archive a conversation to hide it from the default view. Archived conversations can be restored later.",
+    inputSchema: {
+      conversationId: z
+        .number()
+        .describe("The conversation ID to archive"),
+    },
+  },
+  async ({ conversationId }) => {
+    try {
+      const conversation = await archiveConversation(conversationId);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Conversation ${conversationId} has been archived successfully.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Unarchive a conversation
+server.registerTool(
+  "unarchive_conversation",
+  {
+    description: "Unarchive a conversation to restore it to the default view.",
+    inputSchema: {
+      conversationId: z
+        .number()
+        .describe("The conversation ID to unarchive"),
+    },
+  },
+  async ({ conversationId }) => {
+    try {
+      const conversation = await unarchiveConversation(conversationId);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Conversation ${conversationId} has been unarchived successfully.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Archive multiple conversations
+server.registerTool(
+  "archive_conversations_bulk",
+  {
+    description: "Archive multiple conversations at once by their IDs.",
+    inputSchema: {
+      conversationIds: z
+        .array(z.number())
+        .describe("Array of conversation IDs to archive"),
+    },
+  },
+  async ({ conversationIds }) => {
+    try {
+      const count = await archiveConversations(conversationIds);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Successfully archived ${count} conversation(s).`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Archive old conversations
+server.registerTool(
+  "archive_old_conversations",
+  {
+    description: "Archive conversations that haven't been updated in a specified number of days. Great for scheduled cleanup jobs.",
+    inputSchema: {
+      olderThanDays: z
+        .number()
+        .describe("Archive conversations that haven't been updated in this many days"),
+      workspaceId: z
+        .number()
+        .optional()
+        .describe("Only archive conversations in this workspace (optional)"),
+    },
+  },
+  async ({ olderThanDays, workspaceId }) => {
+    try {
+      const count = await archiveOldConversations(olderThanDays, workspaceId);
+      const workspaceText = workspaceId ? ` in workspace ${workspaceId}` : "";
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Successfully archived ${count} conversation(s) older than ${olderThanDays} days${workspaceText}.`,
           },
         ],
       };

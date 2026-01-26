@@ -17,28 +17,16 @@ const MAX_FIELD_VALUE_LENGTH = 1024;
 const MAX_MESSAGE_LENGTH = 2000;
 
 /**
- * Gets a user mention string if DISCORD_MENTION_USER_ID is configured
- */
-function getUserMention(): string {
-  const userId = process.env.DISCORD_MENTION_USER_ID;
-  return userId ? `<@${userId}> ` : "";
-}
-
-/**
  * Sends a message to an existing Discord thread
  */
-async function sendToThread(threadId: string, content: string, mention: boolean = true): Promise<void> {
+async function sendToThread(threadId: string, content: string): Promise<void> {
   const botToken = process.env.DISCORD_BOT_TOKEN;
   if (!botToken) throw new Error("DISCORD_BOT_TOKEN not configured");
 
-  // Add mention prefix if enabled and configured
-  const mentionPrefix = mention ? getUserMention() : "";
-  const fullContent = mentionPrefix + content;
-
   // Truncate if needed
-  const truncatedContent = fullContent.length > MAX_MESSAGE_LENGTH
-    ? fullContent.slice(0, MAX_MESSAGE_LENGTH - 3) + "..."
-    : fullContent;
+  const truncatedContent = content.length > MAX_MESSAGE_LENGTH
+    ? content.slice(0, MAX_MESSAGE_LENGTH - 3) + "..."
+    : content;
 
   const response = await fetch(`https://discord.com/api/v10/channels/${threadId}/messages`, {
     method: "POST",

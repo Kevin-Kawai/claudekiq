@@ -38,6 +38,11 @@ import {
   createToolset,
   updateToolset,
   deleteToolset,
+  getCustomTools,
+  getCustomTool,
+  createCustomTool,
+  updateCustomTool,
+  deleteCustomTool,
   archiveConversation,
   unarchiveConversation,
   archiveConversations,
@@ -856,6 +861,207 @@ server.registerTool(
           {
             type: "text" as const,
             text: `Toolset ${toolsetId} deleted successfully`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============ Custom Tool Tools ============
+
+// Tool: List custom tools
+server.registerTool(
+  "list_custom_tools",
+  {
+    description: "List all saved custom tools (MCP tools, wildcards, etc.) for reuse across conversations and toolsets",
+  },
+  async () => {
+    const tools = await getCustomTools();
+
+    if (tools.length === 0) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "No custom tools found. Create one with create_custom_tool.",
+          },
+        ],
+      };
+    }
+
+    const result = tools.map((t) => ({
+      id: t.id,
+      name: t.name,
+      displayName: t.displayName,
+      description: t.description,
+      createdAt: t.createdAt,
+    }));
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Get custom tool details
+server.registerTool(
+  "get_custom_tool",
+  {
+    description: "Get details of a specific custom tool",
+    inputSchema: {
+      customToolId: z.number().describe("The custom tool ID to get"),
+    },
+  },
+  async ({ customToolId }) => {
+    const tool = await getCustomTool(customToolId);
+
+    if (!tool) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Custom tool with ID ${customToolId} not found`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            {
+              id: tool.id,
+              name: tool.name,
+              displayName: tool.displayName,
+              description: tool.description,
+              createdAt: tool.createdAt,
+              updatedAt: tool.updatedAt,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Create custom tool
+server.registerTool(
+  "create_custom_tool",
+  {
+    description: "Create a new custom tool for reuse across conversations and toolsets",
+    inputSchema: {
+      name: z.string().describe("The tool identifier (e.g., 'mcp__notion__notion-search', 'Bash:*')"),
+      displayName: z.string().optional().describe("Friendly display name (e.g., 'Notion Search')"),
+      description: z.string().optional().describe("Description of what the tool does"),
+    },
+  },
+  async ({ name, displayName, description }) => {
+    try {
+      const tool = await createCustomTool(name, displayName, description);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Custom tool created successfully!\n\nID: ${tool.id}\nName: ${tool.name}${displayName ? `\nDisplay Name: ${displayName}` : ""}${description ? `\nDescription: ${description}` : ""}`,
+          },
+        ],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isDuplicate = message.includes("Unique constraint");
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: isDuplicate
+              ? `Error: A custom tool with name '${name}' already exists`
+              : `Error creating custom tool: ${message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Update custom tool
+server.registerTool(
+  "update_custom_tool",
+  {
+    description: "Update an existing custom tool",
+    inputSchema: {
+      customToolId: z.number().describe("The custom tool ID to update"),
+      name: z.string().optional().describe("New tool identifier"),
+      displayName: z.string().optional().describe("New display name"),
+      description: z.string().optional().describe("New description"),
+    },
+  },
+  async ({ customToolId, name, displayName, description }) => {
+    try {
+      const tool = await updateCustomTool(customToolId, { name, displayName, description });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Custom tool ${tool.id} updated successfully!`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// Tool: Delete custom tool
+server.registerTool(
+  "delete_custom_tool",
+  {
+    description: "Delete a custom tool",
+    inputSchema: {
+      customToolId: z.number().describe("The custom tool ID to delete"),
+    },
+  },
+  async ({ customToolId }) => {
+    try {
+      await deleteCustomTool(customToolId);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Custom tool ${customToolId} deleted successfully`,
           },
         ],
       };

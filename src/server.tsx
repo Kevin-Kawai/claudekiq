@@ -196,6 +196,28 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         .tool-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e0f2fe; color: #0369a1; border-radius: 4px; font-size: 12px; font-family: monospace; }
         .tool-tag button { background: none; border: none; color: #0369a1; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
         .tool-tag button:hover { color: #ef4444; }
+
+        /* Custom Tool Dropdown */
+        .custom-tool-dropdown { position: relative; }
+        .custom-tool-dropdown-menu { position: absolute; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #d1d5db; border-top: none; border-radius: 0 0 6px 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 50; display: none; }
+        .custom-tool-dropdown-menu.active { display: block; }
+        .custom-tool-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+        .custom-tool-dropdown-item:hover { background: #f3f4f6; }
+        .custom-tool-dropdown-item-name { font-family: monospace; font-size: 13px; color: #1f2937; }
+        .custom-tool-dropdown-item-display { font-size: 12px; color: #6b7280; }
+        .custom-tool-dropdown-add { padding: 8px 12px; border-top: 1px solid #e5e7eb; color: #3b82f6; cursor: pointer; font-size: 13px; }
+        .custom-tool-dropdown-add:hover { background: #f0f9ff; }
+        .custom-tool-dropdown-empty { padding: 8px 12px; color: #6b7280; font-size: 13px; }
+
+        /* Custom Tools List (Management Modal) */
+        .custom-tool-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f3f4f6; }
+        .custom-tool-item:last-child { border-bottom: none; }
+        .custom-tool-info { flex: 1; min-width: 0; }
+        .custom-tool-name { font-weight: 500; font-family: monospace; font-size: 13px; word-break: break-all; }
+        .custom-tool-display { font-size: 12px; color: #6b7280; margin-top: 2px; }
+        .custom-tool-desc { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+        .custom-tool-actions { display: flex; gap: 8px; margin-left: 12px; flex-shrink: 0; }
+
         .templates-section { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .templates-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
         .templates-list { padding: 0; }
@@ -823,6 +845,312 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           }
         }
 
+        // ============ Custom Tools ============
+        var customToolsCache = [];
+
+        async function fetchCustomTools() {
+          try {
+            var res = await fetch('/api/custom-tools');
+            customToolsCache = await res.json();
+          } catch (e) {
+            console.error('Failed to fetch custom tools:', e);
+          }
+        }
+
+        function openCustomToolsModal() {
+          document.getElementById('custom-tools-modal-title').textContent = 'Manage Custom Tools';
+          document.getElementById('edit-custom-tool-id').value = '';
+          document.getElementById('new-custom-tool-name').value = '';
+          document.getElementById('new-custom-tool-display').value = '';
+          document.getElementById('new-custom-tool-desc').value = '';
+          document.getElementById('custom-tools-modal').classList.add('active');
+          fetchCustomToolsList();
+        }
+
+        function closeCustomToolsModal() {
+          document.getElementById('custom-tools-modal').classList.remove('active');
+        }
+
+        async function fetchCustomToolsList() {
+          try {
+            var res = await fetch('/api/custom-tools');
+            customToolsCache = await res.json();
+            renderCustomToolsList();
+          } catch (e) {
+            console.error('Failed to fetch custom tools:', e);
+            document.getElementById('custom-tools-list').innerHTML = '<div class="empty-state" style="padding:20px;text-align:center;color:#ef4444;">Failed to load custom tools</div>';
+          }
+        }
+
+        function renderCustomToolsList() {
+          var container = document.getElementById('custom-tools-list');
+          if (customToolsCache.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="padding:20px;text-align:center;color:#6b7280;">No custom tools saved yet. Add one above!</div>';
+            return;
+          }
+          container.innerHTML = customToolsCache.map(function(tool) {
+            var displayPart = tool.displayName ? '<div class="custom-tool-display">' + escapeHtml(tool.displayName) + '</div>' : '';
+            var descPart = tool.description ? '<div class="custom-tool-desc">' + escapeHtml(tool.description) + '</div>' : '';
+            return '<div class="custom-tool-item">' +
+              '<div class="custom-tool-info">' +
+                '<div class="custom-tool-name">' + escapeHtml(tool.name) + '</div>' +
+                displayPart +
+                descPart +
+              '</div>' +
+              '<div class="custom-tool-actions">' +
+                '<button class="btn btn-secondary btn-small" onclick="editCustomTool(' + tool.id + ')">Edit</button>' +
+                '<button class="btn btn-danger btn-small" onclick="deleteCustomTool(' + tool.id + ')">Delete</button>' +
+              '</div>' +
+            '</div>';
+          }).join('');
+        }
+
+        async function submitCustomTool() {
+          var editId = document.getElementById('edit-custom-tool-id').value;
+          var name = document.getElementById('new-custom-tool-name').value.trim();
+          var displayName = document.getElementById('new-custom-tool-display').value.trim();
+          var description = document.getElementById('new-custom-tool-desc').value.trim();
+
+          if (!name) {
+            alert('Tool name is required');
+            return;
+          }
+
+          try {
+            var url = editId ? '/api/custom-tools/' + editId : '/api/custom-tools';
+            var method = editId ? 'PUT' : 'POST';
+            var res = await fetch(url, {
+              method: method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: name, displayName: displayName || null, description: description || null })
+            });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            // Reset form
+            document.getElementById('edit-custom-tool-id').value = '';
+            document.getElementById('new-custom-tool-name').value = '';
+            document.getElementById('new-custom-tool-display').value = '';
+            document.getElementById('new-custom-tool-desc').value = '';
+            document.getElementById('custom-tools-modal-title').textContent = 'Manage Custom Tools';
+            document.getElementById('custom-tools-form-label').textContent = 'Add New Custom Tool';
+            document.getElementById('custom-tools-submit-btn').textContent = 'Add Tool';
+            document.getElementById('custom-tools-cancel-btn').style.display = 'none';
+            fetchCustomToolsList();
+          } catch (e) {
+            console.error('Failed to save custom tool:', e);
+            alert('Failed to save custom tool');
+          }
+        }
+
+        function editCustomTool(id) {
+          var tool = customToolsCache.find(function(t) { return t.id === id; });
+          if (!tool) return;
+
+          document.getElementById('custom-tools-modal-title').textContent = 'Edit Custom Tool';
+          document.getElementById('custom-tools-form-label').textContent = 'Edit Custom Tool';
+          document.getElementById('edit-custom-tool-id').value = id;
+          document.getElementById('new-custom-tool-name').value = tool.name;
+          document.getElementById('new-custom-tool-display').value = tool.displayName || '';
+          document.getElementById('new-custom-tool-desc').value = tool.description || '';
+          document.getElementById('custom-tools-submit-btn').textContent = 'Save Changes';
+          document.getElementById('custom-tools-cancel-btn').style.display = 'inline-block';
+          // Scroll to the form
+          document.getElementById('custom-tools-add-form').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function cancelEditCustomTool() {
+          document.getElementById('custom-tools-modal-title').textContent = 'Manage Custom Tools';
+          document.getElementById('custom-tools-form-label').textContent = 'Add New Custom Tool';
+          document.getElementById('edit-custom-tool-id').value = '';
+          document.getElementById('new-custom-tool-name').value = '';
+          document.getElementById('new-custom-tool-display').value = '';
+          document.getElementById('new-custom-tool-desc').value = '';
+          document.getElementById('custom-tools-submit-btn').textContent = 'Add Tool';
+          document.getElementById('custom-tools-cancel-btn').style.display = 'none';
+        }
+
+        async function deleteCustomTool(id) {
+          if (!confirm('Are you sure you want to delete this custom tool?')) return;
+
+          try {
+            var res = await fetch('/api/custom-tools/' + id, { method: 'DELETE' });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              return;
+            }
+            fetchCustomToolsList();
+          } catch (e) {
+            console.error('Failed to delete custom tool:', e);
+            alert('Failed to delete custom tool');
+          }
+        }
+
+        // ============ Custom Tool Autocomplete Dropdown ============
+        function showCustomToolDropdown(inputId, listId, customToolsArrayName) {
+          var input = document.getElementById(inputId);
+          var menuId = inputId + '-dropdown';
+          var menu = document.getElementById(menuId);
+
+          if (!menu) {
+            // Create dropdown menu if it doesn't exist
+            menu = document.createElement('div');
+            menu.id = menuId;
+            menu.className = 'custom-tool-dropdown-menu';
+            input.parentNode.appendChild(menu);
+          }
+
+          var query = input.value.toLowerCase().trim();
+          var currentTools = window[customToolsArrayName] || [];
+
+          // Filter custom tools based on query
+          var matches = customToolsCache.filter(function(tool) {
+            // Exclude already selected tools
+            if (currentTools.indexOf(tool.name) !== -1) return false;
+            // Exclude common tools
+            if (commonToolsList.indexOf(tool.name) !== -1) return false;
+            // Match query
+            if (!query) return true;
+            return tool.name.toLowerCase().includes(query) ||
+                   (tool.displayName && tool.displayName.toLowerCase().includes(query));
+          });
+
+          // Clear and rebuild menu with event listeners (avoids escaping issues in raw template)
+          menu.innerHTML = '';
+
+          matches.forEach(function(tool) {
+            var item = document.createElement('div');
+            item.className = 'custom-tool-dropdown-item';
+            var nameDiv = document.createElement('div');
+            nameDiv.className = 'custom-tool-dropdown-item-name';
+            nameDiv.textContent = tool.name;
+            item.appendChild(nameDiv);
+            if (tool.displayName) {
+              var displayDiv = document.createElement('div');
+              displayDiv.className = 'custom-tool-dropdown-item-display';
+              displayDiv.textContent = tool.displayName;
+              item.appendChild(displayDiv);
+            }
+            (function(toolName) {
+              item.addEventListener('click', function() {
+                selectCustomToolFromDropdown(inputId, listId, customToolsArrayName, toolName);
+              });
+            })(tool.name);
+            menu.appendChild(item);
+          });
+
+          // Add option to add as new tool if query doesn't match existing
+          if (query && !matches.some(function(t) { return t.name.toLowerCase() === query; })) {
+            var addItem = document.createElement('div');
+            addItem.className = 'custom-tool-dropdown-add';
+            addItem.textContent = 'Add "' + input.value.trim() + '"';
+            addItem.addEventListener('click', function() {
+              addCustomToolFromInput(inputId, listId, customToolsArrayName);
+            });
+            menu.appendChild(addItem);
+          }
+
+          if (menu.children.length === 0 && !query) {
+            menu.innerHTML = '<div class="custom-tool-dropdown-empty">No saved custom tools. Type to add one.</div>';
+          } else if (menu.children.length === 0) {
+            menu.innerHTML = '<div class="custom-tool-dropdown-empty">No matches. Press Enter to add.</div>';
+          }
+
+          menu.classList.add('active');
+        }
+
+        function hideCustomToolDropdown(inputId) {
+          var menu = document.getElementById(inputId + '-dropdown');
+          if (menu) {
+            menu.classList.remove('active');
+          }
+        }
+
+        function selectCustomToolFromDropdown(inputId, listId, customToolsArrayName, toolName) {
+          var currentTools = window[customToolsArrayName] || [];
+          if (currentTools.indexOf(toolName) === -1) {
+            currentTools.push(toolName);
+            window[customToolsArrayName] = currentTools;
+            renderSelectedCustomTools(listId, customToolsArrayName);
+          }
+          document.getElementById(inputId).value = '';
+          hideCustomToolDropdown(inputId);
+        }
+
+        function addCustomToolFromInput(inputId, listId, customToolsArrayName) {
+          var input = document.getElementById(inputId);
+          var tool = input.value.trim();
+          if (!tool) return;
+
+          var currentTools = window[customToolsArrayName] || [];
+          if (currentTools.indexOf(tool) === -1 && commonToolsList.indexOf(tool) === -1) {
+            currentTools.push(tool);
+            window[customToolsArrayName] = currentTools;
+            renderSelectedCustomTools(listId, customToolsArrayName);
+          }
+          input.value = '';
+          hideCustomToolDropdown(inputId);
+        }
+
+        function renderSelectedCustomTools(listId, customToolsArrayName) {
+          var container = document.getElementById(listId);
+          var tools = window[customToolsArrayName] || [];
+          container.innerHTML = '';
+          tools.forEach(function(tool, idx) {
+            var span = document.createElement('span');
+            span.className = 'tool-tag';
+            span.appendChild(document.createTextNode(tool));
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.innerHTML = '&times;';
+            (function(index) {
+              btn.addEventListener('click', function() {
+                removeSelectedCustomTool(listId, customToolsArrayName, index);
+              });
+            })(idx);
+            span.appendChild(btn);
+            container.appendChild(span);
+          });
+        }
+
+        function removeSelectedCustomTool(listId, customToolsArrayName, index) {
+          var tools = window[customToolsArrayName] || [];
+          tools.splice(index, 1);
+          window[customToolsArrayName] = tools;
+          renderSelectedCustomTools(listId, customToolsArrayName);
+        }
+
+        function initCustomToolInput(inputId, listId, customToolsArrayName) {
+          var input = document.getElementById(inputId);
+          if (!input) return;
+
+          input.addEventListener('focus', function() {
+            showCustomToolDropdown(inputId, listId, customToolsArrayName);
+          });
+
+          input.addEventListener('input', function() {
+            showCustomToolDropdown(inputId, listId, customToolsArrayName);
+          });
+
+          input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addCustomToolFromInput(inputId, listId, customToolsArrayName);
+            }
+          });
+
+          // Close dropdown when clicking outside
+          document.addEventListener('click', function(e) {
+            var menu = document.getElementById(inputId + '-dropdown');
+            if (menu && !input.contains(e.target) && !menu.contains(e.target)) {
+              hideCustomToolDropdown(inputId);
+            }
+          });
+        }
+
         // ============ Toolsets ============
         var toolsetsCache = [];
         var toolsetCustomTools = [];
@@ -872,7 +1200,9 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           // Reset custom tools
           toolsetCustomTools = [];
           document.getElementById('toolset-custom-tool-input').value = '';
-          renderToolsetCustomTools();
+          renderSelectedCustomTools('toolset-custom-tools-list', 'toolsetCustomTools');
+          // Initialize autocomplete
+          initCustomToolInput('toolset-custom-tool-input', 'toolset-custom-tools-list', 'toolsetCustomTools');
         }
 
         function closeNewToolsetModal() {
@@ -897,14 +1227,11 @@ const Layout: FC<{ children: any }> = ({ children }) => (
 
         function removeToolsetCustomTool(index) {
           toolsetCustomTools.splice(index, 1);
-          renderToolsetCustomTools();
+          renderSelectedCustomTools('toolset-custom-tools-list', 'toolsetCustomTools');
         }
 
         function renderToolsetCustomTools() {
-          var container = document.getElementById('toolset-custom-tools-list');
-          container.innerHTML = toolsetCustomTools.map(function(tool, idx) {
-            return '<span class="tool-tag">' + escapeHtml(tool) + '<button type="button" onclick="removeToolsetCustomTool(' + idx + ')">&times;</button></span>';
-          }).join('');
+          renderSelectedCustomTools('toolset-custom-tools-list', 'toolsetCustomTools');
         }
 
         function getSelectedTools() {
@@ -1467,6 +1794,9 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             // Set default tools: Read, Edit, Glob, Bash
             setConversationTools(['Read', 'Edit', 'Glob', 'Bash']);
           }
+
+          // Initialize autocomplete for custom tools
+          initCustomToolInput('conversation-custom-tool-input', 'conversation-custom-tools-list', 'conversationCustomTools');
         }
 
         var conversationCustomTools = [];
@@ -1518,14 +1848,11 @@ const Layout: FC<{ children: any }> = ({ children }) => (
 
         function removeConversationCustomTool(index) {
           conversationCustomTools.splice(index, 1);
-          renderConversationCustomTools();
+          renderSelectedCustomTools('conversation-custom-tools-list', 'conversationCustomTools');
         }
 
         function renderConversationCustomTools() {
-          var container = document.getElementById('conversation-custom-tools-list');
-          container.innerHTML = conversationCustomTools.map(function(tool, idx) {
-            return '<span class="tool-tag">' + escapeHtml(tool) + '<button type="button" onclick="removeConversationCustomTool(' + idx + ')">&times;</button></span>';
-          }).join('');
+          renderSelectedCustomTools('conversation-custom-tools-list', 'conversationCustomTools');
         }
 
         function closeNewConversationModal() {
@@ -1766,6 +2093,7 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         fetchStats();
         fetchJobs();
         fetchToolsets();
+        fetchCustomTools();
         fetchTemplates();
         fetchWorkspaces().then(function() {
           fetchConversations();
@@ -1928,6 +2256,7 @@ const ToolsetsSection: FC = () => (
         <span class="refresh-info">Preset tool configurations for conversations</span>
       </div>
       <div class="job-buttons">
+        <button class="btn btn-secondary" onclick="openCustomToolsModal()">Custom Tools</button>
         <button class="add-job-btn" onclick="openNewToolsetModal()">+ Add Toolset</button>
       </div>
     </div>
@@ -1964,11 +2293,10 @@ const NewToolsetModal: FC = () => (
       </div>
       <div class="form-group">
         <label>Custom Tools</label>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="toolset-custom-tool-input" placeholder="Bash:*, mcp__server__tool" style="flex:1;" />
-          <button type="button" class="btn btn-secondary" onclick="addToolsetCustomTool()">Add</button>
+        <div class="custom-tool-dropdown">
+          <input type="text" id="toolset-custom-tool-input" placeholder="Type to search or add custom tools..." autocomplete="off" />
         </div>
-        <small>Add custom tools like Bash:*, mcp__notion__notion-search, etc.</small>
+        <small>Select from saved tools or type to add new ones</small>
         <div id="toolset-custom-tools-list" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;"></div>
       </div>
       <div class="form-group">
@@ -1981,6 +2309,37 @@ const NewToolsetModal: FC = () => (
       <div class="modal-buttons">
         <button class="btn btn-secondary" onclick="closeNewToolsetModal()">Cancel</button>
         <button class="btn btn-primary" onclick="submitToolset()">Save Toolset</button>
+      </div>
+    </div>
+  </div>
+);
+
+const CustomToolsModal: FC = () => (
+  <div id="custom-tools-modal" class="modal" onclick="if(event.target===this)closeCustomToolsModal()">
+    <div class="modal-content" style="max-width:600px;">
+      <h3 id="custom-tools-modal-title">Manage Custom Tools</h3>
+      <input type="hidden" id="edit-custom-tool-id" value="" />
+      <p style="color:#6b7280;margin-bottom:16px;font-size:14px;">
+        Save frequently used custom tools (MCP tools, wildcards, etc.) for quick selection in conversations and toolsets.
+      </p>
+
+      <div id="custom-tools-add-form" class="form-group" style="background:#f9fafb;padding:12px;border-radius:8px;margin-bottom:16px;">
+        <label id="custom-tools-form-label" style="font-weight:500;margin-bottom:8px;display:block;">Add New Custom Tool</label>
+        <input type="text" id="new-custom-tool-name" placeholder="Tool name (e.g., mcp__notion__notion-search)" style="margin-bottom:8px;" />
+        <input type="text" id="new-custom-tool-display" placeholder="Display name (optional, e.g., Notion Search)" style="margin-bottom:8px;" />
+        <input type="text" id="new-custom-tool-desc" placeholder="Description (optional)" style="margin-bottom:8px;" />
+        <button class="btn btn-primary" id="custom-tools-submit-btn" onclick="submitCustomTool()">Add Tool</button>
+        <button class="btn btn-secondary" id="custom-tools-cancel-btn" style="display:none;margin-left:8px;" onclick="cancelEditCustomTool()">Cancel</button>
+      </div>
+
+      <div style="border:1px solid #e5e7eb;border-radius:8px;max-height:300px;overflow-y:auto;">
+        <div id="custom-tools-list">
+          <div class="empty-state" style="padding:20px;text-align:center;color:#6b7280;">Loading...</div>
+        </div>
+      </div>
+
+      <div class="modal-buttons" style="margin-top:16px;">
+        <button class="btn btn-secondary" onclick="closeCustomToolsModal()">Close</button>
       </div>
     </div>
   </div>
@@ -2190,11 +2549,10 @@ const NewConversationModal: FC = () => (
       </div>
       <div class="form-group">
         <label>Custom Tools</label>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="conversation-custom-tool-input" placeholder="Bash:*, mcp__server__tool" style="flex:1;" />
-          <button type="button" class="btn btn-secondary" onclick="addConversationCustomTool()">Add</button>
+        <div class="custom-tool-dropdown">
+          <input type="text" id="conversation-custom-tool-input" placeholder="Type to search or add custom tools..." autocomplete="off" />
         </div>
-        <small>Add custom tools like Bash:*, mcp__notion__notion-search, etc.</small>
+        <small>Select from saved tools or type to add new ones</small>
         <div id="conversation-custom-tools-list" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;"></div>
       </div>
       <div class="form-group">
@@ -2282,6 +2640,7 @@ const Dashboard: FC = () => (
     <NewConversationModal />
     <NewWorkspaceModal />
     <NewToolsetModal />
+    <CustomToolsModal />
     <NewTemplateModal />
   </Layout>
 );
@@ -2749,6 +3108,18 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         .conv-options .tools-checkboxes .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; background: #f3f4f6; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
         .conv-options .tools-checkboxes .checkbox-label input { margin: 0; }
 
+        /* Custom Tool Dropdown */
+        .custom-tool-dropdown { position: relative; }
+        .custom-tool-dropdown-menu { position: absolute; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #d1d5db; border-top: none; border-radius: 0 0 6px 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 50; display: none; }
+        .custom-tool-dropdown-menu.active { display: block; }
+        .custom-tool-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+        .custom-tool-dropdown-item:hover { background: #f3f4f6; }
+        .custom-tool-dropdown-item-name { font-family: monospace; font-size: 13px; color: #1f2937; }
+        .custom-tool-dropdown-item-display { font-size: 12px; color: #6b7280; }
+        .custom-tool-dropdown-add { padding: 8px 12px; border-top: 1px solid #e5e7eb; color: #3b82f6; cursor: pointer; font-size: 13px; }
+        .custom-tool-dropdown-add:hover { background: #f0f9ff; }
+        .custom-tool-dropdown-empty { padding: 8px 12px; color: #6b7280; font-size: 13px; }
+
         /* ============ Large Screen Styles ============ */
         @media (min-width: 1400px) {
           .container { max-width: 1300px; }
@@ -3037,6 +3408,97 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         const conversationId = ${conversationId};
 
         var lastMessageCount = 0;
+        var customToolsCache = [];
+        var commonToolsList = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash', 'Task', 'WebFetch', 'WebSearch', 'NotebookEdit'];
+
+        async function fetchCustomTools() {
+          try {
+            var res = await fetch('/api/custom-tools');
+            customToolsCache = await res.json();
+          } catch (e) {
+            console.error('Failed to fetch custom tools:', e);
+          }
+        }
+
+        function escapeHtml(text) {
+          if (!text) return '';
+          var div = document.createElement('div');
+          div.textContent = text;
+          return div.innerHTML;
+        }
+
+        function showCustomToolDropdown(inputId, listId, customToolsArrayName) {
+          var input = document.getElementById(inputId);
+          var menuId = inputId + '-dropdown';
+          var menu = document.getElementById(menuId);
+
+          if (!menu) {
+            menu = document.createElement('div');
+            menu.id = menuId;
+            menu.className = 'custom-tool-dropdown-menu';
+            input.parentNode.appendChild(menu);
+          }
+
+          var query = input.value.toLowerCase().trim();
+          var currentTools = window[customToolsArrayName] || [];
+          var toolsList = convCommonToolsList || commonToolsList;
+
+          var matches = customToolsCache.filter(function(tool) {
+            if (currentTools.indexOf(tool.name) !== -1) return false;
+            if (toolsList.indexOf(tool.name) !== -1) return false;
+            if (!query) return true;
+            return tool.name.toLowerCase().includes(query) ||
+                   (tool.displayName && tool.displayName.toLowerCase().includes(query));
+          });
+
+          // Clear and rebuild menu with event listeners
+          menu.innerHTML = '';
+
+          matches.forEach(function(tool) {
+            var item = document.createElement('div');
+            item.className = 'custom-tool-dropdown-item';
+            item.innerHTML = '<div class="custom-tool-dropdown-item-name">' + escapeHtml(tool.name) + '</div>' +
+              (tool.displayName ? '<div class="custom-tool-dropdown-item-display">' + escapeHtml(tool.displayName) + '</div>' : '');
+            item.addEventListener('click', function() {
+              selectConvCustomTool(tool.name);
+            });
+            menu.appendChild(item);
+          });
+
+          if (query && !matches.some(function(t) { return t.name.toLowerCase() === query; })) {
+            var addItem = document.createElement('div');
+            addItem.className = 'custom-tool-dropdown-add';
+            addItem.textContent = 'Add "' + input.value.trim() + '"';
+            addItem.addEventListener('click', function() {
+              addConvToolFromInput();
+            });
+            menu.appendChild(addItem);
+          }
+
+          if (menu.children.length === 0 && !query) {
+            menu.innerHTML = '<div class="custom-tool-dropdown-empty">No saved custom tools. Type to add one.</div>';
+          } else if (menu.children.length === 0) {
+            menu.innerHTML = '<div class="custom-tool-dropdown-empty">No matches. Press Enter to add.</div>';
+          }
+
+          menu.classList.add('active');
+        }
+
+        function hideCustomToolDropdown(inputId) {
+          var menu = document.getElementById(inputId + '-dropdown');
+          if (menu) {
+            menu.classList.remove('active');
+          }
+        }
+
+        function selectConvCustomTool(toolName) {
+          if (convCustomTools.indexOf(toolName) === -1) {
+            convCustomTools.push(toolName);
+            renderConvCustomTools();
+          }
+          document.getElementById('conv-new-tool').value = '';
+          hideCustomToolDropdown('conv-new-tool');
+        }
 
         async function fetchConversation() {
           try {
@@ -3283,11 +3745,10 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           html += '<div class="form-group">';
           html += '<label>Custom Tools</label>';
           html += '<div class="dir-list" id="conv-custom-tools-list"></div>';
-          html += '<div class="add-row">';
-          html += '<input type="text" id="conv-new-tool" placeholder="Bash:*, mcp__notion__*, etc." />';
-          html += '<button type="button" onclick="addConvTool()">Add</button>';
+          html += '<div class="add-row custom-tool-dropdown">';
+          html += '<input type="text" id="conv-new-tool" placeholder="Type to search or add custom tools..." autocomplete="off" />';
           html += '</div>';
-          html += '<small>Add custom tools like Bash:*, mcp__notion__notion-search, etc.</small>';
+          html += '<small>Select from saved tools or type to add new ones</small>';
           html += '</div>';
 
           html += '<button type="button" class="save-btn" id="save-options-btn" onclick="saveConvOptions()">Save Options</button>';
@@ -3420,6 +3881,10 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           if (optionsPanelOpen) {
             content.classList.add('open');
             btn.textContent = 'Hide';
+            // Initialize autocomplete after opening
+            setTimeout(function() {
+              initConvToolInput();
+            }, 0);
           } else {
             content.classList.remove('open');
             btn.textContent = 'Show';
@@ -3495,14 +3960,53 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         function renderConvCustomTools() {
           var container = document.getElementById('conv-custom-tools-list');
           if (!container) return;
-          var html = '';
+          container.innerHTML = '';
           convCustomTools.forEach(function(tool, idx) {
-            html += '<span class="tool-tag">' + escapeHtml(tool) + '<button type="button" onclick="removeConvTool(' + idx + ')">×</button></span>';
+            var span = document.createElement('span');
+            span.className = 'tool-tag';
+            span.appendChild(document.createTextNode(tool));
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = '×';
+            (function(index) {
+              btn.addEventListener('click', function() {
+                removeConvTool(index);
+              });
+            })(idx);
+            span.appendChild(btn);
+            container.appendChild(span);
           });
-          container.innerHTML = html;
         }
 
-        function addConvTool() {
+        function initConvToolInput() {
+          var input = document.getElementById('conv-new-tool');
+          if (!input || input.dataset.initialized) return;
+          input.dataset.initialized = 'true';
+
+          input.addEventListener('focus', function() {
+            showCustomToolDropdown('conv-new-tool', 'conv-custom-tools-list', 'convCustomTools');
+          });
+
+          input.addEventListener('input', function() {
+            showCustomToolDropdown('conv-new-tool', 'conv-custom-tools-list', 'convCustomTools');
+          });
+
+          input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addConvToolFromInput();
+            }
+          });
+
+          document.addEventListener('click', function(e) {
+            var menu = document.getElementById('conv-new-tool-dropdown');
+            if (menu && !input.contains(e.target) && !menu.contains(e.target)) {
+              hideCustomToolDropdown('conv-new-tool');
+            }
+          });
+        }
+
+        function addConvToolFromInput() {
           var input = document.getElementById('conv-new-tool');
           var tool = input.value.trim();
           if (!tool) return;
@@ -3516,6 +4020,11 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             renderConvCustomTools();
           }
           input.value = '';
+          hideCustomToolDropdown('conv-new-tool');
+        }
+
+        function addConvTool() {
+          addConvToolFromInput();
         }
 
         function removeConvTool(idx) {
@@ -3665,6 +4174,7 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         });
 
         fetchConversation();
+        fetchCustomTools();
 
         var pollingPaused = false;
         var pollingPausedByFocus = false;
@@ -4313,6 +4823,77 @@ app.post("/api/toolsets/:id/set-default", async (c) => {
       data: { isDefault: true },
     });
     return c.json(toolset);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// ============ Custom Tool API ============
+
+// Get all custom tools
+app.get("/api/custom-tools", async (c) => {
+  const customTools = await prisma.customTool.findMany({
+    orderBy: { name: "asc" },
+  });
+  return c.json(customTools);
+});
+
+// Create a custom tool
+app.post("/api/custom-tools", async (c) => {
+  const body = await c.req.json();
+
+  if (!body.name) {
+    return c.json({ error: "Name is required" }, 400);
+  }
+
+  try {
+    const customTool = await prisma.customTool.create({
+      data: {
+        name: body.name,
+        displayName: body.displayName || null,
+        description: body.description || null,
+      },
+    });
+    return c.json(customTool, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    const isDuplicate = message.includes("Unique constraint");
+    return c.json({
+      error: isDuplicate ? `A custom tool with name '${body.name}' already exists` : message
+    }, 400);
+  }
+});
+
+// Update a custom tool
+app.put("/api/custom-tools/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json();
+
+  try {
+    const data: { name?: string; displayName?: string | null; description?: string | null } = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.displayName !== undefined) data.displayName = body.displayName || null;
+    if (body.description !== undefined) data.description = body.description || null;
+
+    const customTool = await prisma.customTool.update({
+      where: { id },
+      data,
+    });
+    return c.json(customTool);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// Delete a custom tool
+app.delete("/api/custom-tools/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+
+  try {
+    const customTool = await prisma.customTool.delete({
+      where: { id },
+    });
+    return c.json(customTool);
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
   }

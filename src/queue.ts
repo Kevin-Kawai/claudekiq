@@ -1195,6 +1195,106 @@ export async function deleteToolset(id: number): Promise<Toolset> {
   );
 }
 
+// ============ Custom Tool Functions ============
+
+export interface CustomTool {
+  id: number;
+  name: string;
+  displayName: string | null;
+  description: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Create a new custom tool
+ */
+export async function createCustomTool(
+  name: string,
+  displayName?: string,
+  description?: string
+): Promise<CustomTool> {
+  return withRetry(
+    () => prisma.customTool.create({
+      data: {
+        name,
+        displayName: displayName || null,
+        description: description || null,
+      },
+    }),
+    { operationName: "createCustomTool" }
+  );
+}
+
+/**
+ * Get all custom tools
+ */
+export async function getCustomTools(): Promise<CustomTool[]> {
+  return withRetry(
+    () => prisma.customTool.findMany({
+      orderBy: [{ name: "asc" }],
+    }),
+    { operationName: "getCustomTools" }
+  );
+}
+
+/**
+ * Get a custom tool by ID
+ */
+export async function getCustomTool(id: number): Promise<CustomTool | null> {
+  return withRetry(
+    () => prisma.customTool.findUnique({
+      where: { id },
+    }),
+    { operationName: `getCustomTool(${id})` }
+  );
+}
+
+/**
+ * Get a custom tool by name
+ */
+export async function getCustomToolByName(name: string): Promise<CustomTool | null> {
+  return withRetry(
+    () => prisma.customTool.findUnique({
+      where: { name },
+    }),
+    { operationName: `getCustomToolByName(${name})` }
+  );
+}
+
+/**
+ * Update a custom tool
+ */
+export async function updateCustomTool(
+  id: number,
+  updates: { name?: string; displayName?: string; description?: string }
+): Promise<CustomTool> {
+  const data: Record<string, unknown> = {};
+  if (updates.name !== undefined) data.name = updates.name;
+  if (updates.displayName !== undefined) data.displayName = updates.displayName || null;
+  if (updates.description !== undefined) data.description = updates.description || null;
+
+  return withRetry(
+    () => prisma.customTool.update({
+      where: { id },
+      data,
+    }),
+    { operationName: `updateCustomTool(${id})` }
+  );
+}
+
+/**
+ * Delete a custom tool
+ */
+export async function deleteCustomTool(id: number): Promise<CustomTool> {
+  return withRetry(
+    () => prisma.customTool.delete({
+      where: { id },
+    }),
+    { operationName: `deleteCustomTool(${id})` }
+  );
+}
+
 // ============ Conversation Template Functions ============
 
 export interface ConversationTemplate {

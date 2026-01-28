@@ -33,7 +33,7 @@ async function sendToThread(threadId: string, content: string, mention: boolean 
 
   // Add mention prefix if enabled and configured
   const mentionPrefix = mention ? getUserMention() : "";
-  const fullContent = mentionPrefix + content;
+  const fullContent = mentionPrefix ? `${mentionPrefix}\n${content}` : content;
 
   // Truncate if needed
   const truncatedContent = fullContent.length > MAX_MESSAGE_LENGTH

@@ -1623,7 +1623,10 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             }
           }
           if (template.toolsetId) {
-            document.getElementById('new-conversation-toolset').value = template.toolsetId;
+            var toolset = toolsetsCache.find(function(ts) { return ts.id === template.toolsetId; });
+            if (toolset) {
+              addToolsetToConversation(JSON.parse(toolset.tools));
+            }
           }
           if (template.additionalDirectories) {
             try {
@@ -1772,22 +1775,8 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             select.appendChild(opt);
           });
 
-          // Populate toolset dropdown and apply default toolset
-          var toolsetSelect = document.getElementById('new-conversation-toolset');
-          toolsetSelect.innerHTML = '<option value="">-- Use default tools --</option>';
-          var defaultToolset = null;
-          toolsetsCache.forEach(function(ts) {
-            var opt = document.createElement('option');
-            opt.value = ts.id;
-            opt.textContent = ts.name + (ts.isDefault ? ' (Default)' : '');
-            toolsetSelect.appendChild(opt);
-            if (ts.isDefault) {
-              defaultToolset = ts;
-              opt.selected = true;
-            }
-          });
-
           // Apply default toolset tools if available
+          var defaultToolset = toolsetsCache.find(function(ts) { return ts.isDefault; });
           if (defaultToolset) {
             setConversationTools(JSON.parse(defaultToolset.tools));
           } else {
@@ -1795,23 +1784,102 @@ const Layout: FC<{ children: any }> = ({ children }) => (
             setConversationTools(['Read', 'Edit', 'Glob', 'Bash']);
           }
 
-          // Initialize autocomplete for custom tools
+          // Initialize autocomplete for toolsets and custom tools
+          initConversationToolsetInput();
           initCustomToolInput('conversation-custom-tool-input', 'conversation-custom-tools-list', 'conversationCustomTools');
         }
 
         var conversationCustomTools = [];
 
-        function onToolsetChange() {
-          var toolsetId = document.getElementById('new-conversation-toolset').value;
-          if (!toolsetId) {
-            // Default tools
-            setConversationTools(['Read', 'Edit', 'Glob', 'Bash']);
-            return;
+        function showConversationToolsetDropdown() {
+          var input = document.getElementById('new-conversation-toolset-input');
+          var menuId = 'new-conversation-toolset-dropdown';
+          var menu = document.getElementById(menuId);
+
+          if (!menu) {
+            menu = document.createElement('div');
+            menu.id = menuId;
+            menu.className = 'custom-tool-dropdown-menu';
+            input.parentNode.appendChild(menu);
           }
-          var toolset = toolsetsCache.find(function(ts) { return ts.id === parseInt(toolsetId); });
-          if (toolset) {
-            setConversationTools(JSON.parse(toolset.tools));
+
+          var query = input.value.toLowerCase().trim();
+
+          var matches = toolsetsCache.filter(function(ts) {
+            if (!query) return true;
+            return ts.name.toLowerCase().includes(query);
+          });
+
+          menu.innerHTML = '';
+
+          matches.forEach(function(ts) {
+            var item = document.createElement('div');
+            item.className = 'custom-tool-dropdown-item';
+            var toolsList = JSON.parse(ts.tools);
+            item.innerHTML = '<div class="custom-tool-dropdown-item-name">' + escapeHtml(ts.name) + '</div>' +
+              '<div class="custom-tool-dropdown-item-display">' + toolsList.slice(0, 5).join(', ') + (toolsList.length > 5 ? '...' : '') + '</div>';
+            item.addEventListener('click', function() {
+              addToolsetToConversation(JSON.parse(ts.tools));
+              input.value = '';
+              hideConversationToolsetDropdown();
+            });
+            menu.appendChild(item);
+          });
+
+          if (menu.children.length === 0) {
+            menu.innerHTML = '<div class="custom-tool-dropdown-empty">No toolsets found</div>';
           }
+
+          menu.classList.add('active');
+        }
+
+        function hideConversationToolsetDropdown() {
+          var menu = document.getElementById('new-conversation-toolset-dropdown');
+          if (menu) menu.classList.remove('active');
+        }
+
+        var conversationToolsetClickListenerAdded = false;
+        function initConversationToolsetInput() {
+          var input = document.getElementById('new-conversation-toolset-input');
+          if (!input || input.dataset.initialized) return;
+          input.dataset.initialized = 'true';
+
+          input.addEventListener('focus', function() {
+            showConversationToolsetDropdown();
+          });
+
+          input.addEventListener('input', function() {
+            showConversationToolsetDropdown();
+          });
+
+          if (!conversationToolsetClickListenerAdded) {
+            conversationToolsetClickListenerAdded = true;
+            document.addEventListener('click', function(e) {
+              var currentInput = document.getElementById('new-conversation-toolset-input');
+              var menu = document.getElementById('new-conversation-toolset-dropdown');
+              if (menu && currentInput && !currentInput.contains(e.target) && !menu.contains(e.target)) {
+                hideConversationToolsetDropdown();
+              }
+            });
+          }
+        }
+
+        // Adds toolset tools to existing tools (merges instead of replacing)
+        function addToolsetToConversation(tools) {
+          var checkboxes = document.querySelectorAll('#conversation-tools-list input[type="checkbox"]');
+          checkboxes.forEach(function(cb) {
+            // Check the box if tool is in the toolset (don't uncheck existing)
+            if (tools.indexOf(cb.value) !== -1) {
+              cb.checked = true;
+            }
+          });
+          // Add custom tools from toolset (if not already present)
+          tools.forEach(function(tool) {
+            if (commonToolsList.indexOf(tool) === -1 && conversationCustomTools.indexOf(tool) === -1) {
+              conversationCustomTools.push(tool);
+            }
+          });
+          renderConversationCustomTools();
         }
 
         function setConversationTools(tools) {
@@ -1879,7 +1947,8 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           additionalDirs = [];
           renderAdditionalDirsList();
           // Reset toolset and custom tools
-          document.getElementById('new-conversation-toolset').value = '';
+          document.getElementById('new-conversation-toolset-input').value = '';
+          hideConversationToolsetDropdown();
           document.getElementById('conversation-custom-tool-input').value = '';
           conversationCustomTools = [];
           renderConversationCustomTools();
@@ -2524,13 +2593,11 @@ const NewConversationModal: FC = () => (
         </div>
       </div>
       <div class="form-group">
-        <label>Toolset</label>
-        <div style="display:flex;gap:8px;">
-          <select id="new-conversation-toolset" onchange="onToolsetChange()" style="flex:1;">
-            <option value="">-- Use default tools --</option>
-          </select>
+        <label>Add Toolset</label>
+        <div class="custom-tool-dropdown">
+          <input type="text" id="new-conversation-toolset-input" placeholder="Type to search toolsets..." autocomplete="off" />
         </div>
-        <small>Select a preset toolset or customize tools below</small>
+        <small>Search and select a toolset to add its tools</small>
       </div>
       <div class="form-group">
         <label>Common Tools</label>
@@ -3099,6 +3166,9 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         .conv-options .tool-tag button { background: none; border: none; color: #92400e; cursor: pointer; font-size: 13px; padding: 0; line-height: 1; }
         .conv-options .add-row { display: flex; gap: 8px; margin-top: 8px; }
         .conv-options .add-row input { flex: 1; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; }
+        .conv-options .add-row select { flex: 1; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; background: white; appearance: none; -webkit-appearance: none; -moz-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; cursor: pointer; }
+        .conv-options .add-row select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .conv-options .add-row select:hover { border-color: #9ca3af; }
         .conv-options .add-row button { padding: 10px 16px; background: #e5e7eb; color: #374151; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; }
         .conv-options .add-row button:hover { background: #d1d5db; }
         .conv-options .save-btn { margin-top: 16px; padding: 12px 20px; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
@@ -3188,7 +3258,7 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           .conv-options .dir-tag { font-size: 11px; padding: 6px 10px; max-width: 100%; word-break: break-all; }
           .conv-options .tool-tag { font-size: 11px; padding: 6px 10px; }
           .conv-options .add-row { flex-direction: column; gap: 8px; }
-          .conv-options .add-row input { width: 100%; padding: 12px 14px; font-size: 16px; }
+          .conv-options .add-row input, .conv-options .add-row select { width: 100%; padding: 12px 14px; font-size: 16px; }
           .conv-options .add-row button { width: 100%; padding: 12px 14px; font-size: 15px; }
           .conv-options .tools-checkboxes { gap: 8px; }
           .conv-options .tools-checkboxes .checkbox-label { font-size: 13px; padding: 8px 12px; }
@@ -3409,6 +3479,7 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
 
         var lastMessageCount = 0;
         var customToolsCache = [];
+        var toolsetsCache = [];
         var commonToolsList = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash', 'Task', 'WebFetch', 'WebSearch', 'NotebookEdit'];
 
         async function fetchCustomTools() {
@@ -3417,6 +3488,15 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             customToolsCache = await res.json();
           } catch (e) {
             console.error('Failed to fetch custom tools:', e);
+          }
+        }
+
+        async function fetchToolsets() {
+          try {
+            var res = await fetch('/api/toolsets');
+            toolsetsCache = await res.json();
+          } catch (e) {
+            console.error('Failed to fetch toolsets:', e);
           }
         }
 
@@ -3577,6 +3657,8 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             var savedNewDirValue = savedNewDir ? savedNewDir.value : '';
             var savedNewTool = document.getElementById('conv-new-tool');
             var savedNewToolValue = savedNewTool ? savedNewTool.value : '';
+            var savedToolsetInput = document.getElementById('conv-toolset-input');
+            var savedToolsetValue = savedToolsetInput ? savedToolsetInput.value : '';
 
             // Save checkbox states before re-render
             var savedCheckboxStates = {};
@@ -3619,10 +3701,16 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
               newToolInput.value = savedNewToolValue;
             }
 
-            // Re-initialize tool input event listeners after re-render
+            // Re-initialize input event listeners after re-render
             // (the DOM was recreated so event listeners were lost)
             if (optionsPanelOpen) {
               initConvToolInput();
+              initConvToolsetInput();
+              // Restore toolset input value
+              var newToolsetInput = document.getElementById('conv-toolset-input');
+              if (newToolsetInput && savedToolsetValue) {
+                newToolsetInput.value = savedToolsetValue;
+              }
             }
 
             // Restore scroll position
@@ -3719,6 +3807,15 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           html += '<button type="button" class="conv-options-toggle" id="options-toggle-btn">Show</button>';
           html += '</div>';
           html += '<div class="conv-options-content" id="options-content">';
+
+          // Toolset selector
+          html += '<div class="form-group">';
+          html += '<label>Add Toolset</label>';
+          html += '<div class="add-row custom-tool-dropdown">';
+          html += '<input type="text" id="conv-toolset-input" placeholder="Type to search toolsets..." autocomplete="off" />';
+          html += '</div>';
+          html += '<small>Search and select a toolset to add its tools</small>';
+          html += '</div>';
 
           // Additional Directories
           html += '<div class="form-group">';
@@ -3887,13 +3984,111 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           if (optionsPanelOpen) {
             content.classList.add('open');
             btn.textContent = 'Hide';
-            // Initialize autocomplete after opening
+            // Initialize autocomplete dropdowns after opening
             setTimeout(function() {
               initConvToolInput();
+              initConvToolsetInput();
             }, 0);
           } else {
             content.classList.remove('open');
             btn.textContent = 'Show';
+          }
+        }
+
+        function showConvToolsetDropdown() {
+          var input = document.getElementById('conv-toolset-input');
+          var menuId = 'conv-toolset-dropdown';
+          var menu = document.getElementById(menuId);
+
+          if (!menu) {
+            menu = document.createElement('div');
+            menu.id = menuId;
+            menu.className = 'custom-tool-dropdown-menu';
+            input.parentNode.appendChild(menu);
+          }
+
+          var query = input.value.toLowerCase().trim();
+
+          var matches = toolsetsCache.filter(function(ts) {
+            if (!query) return true;
+            return ts.name.toLowerCase().includes(query);
+          });
+
+          menu.innerHTML = '';
+
+          matches.forEach(function(ts) {
+            var item = document.createElement('div');
+            item.className = 'custom-tool-dropdown-item';
+            var toolsList = JSON.parse(ts.tools);
+            item.innerHTML = '<div class="custom-tool-dropdown-item-name">' + escapeHtml(ts.name) + '</div>' +
+              '<div class="custom-tool-dropdown-item-display">' + toolsList.slice(0, 5).join(', ') + (toolsList.length > 5 ? '...' : '') + '</div>';
+            item.addEventListener('click', function() {
+              addConvToolsetById(ts.id);
+              input.value = '';
+              hideConvToolsetDropdown();
+            });
+            menu.appendChild(item);
+          });
+
+          if (menu.children.length === 0) {
+            menu.innerHTML = '<div class="custom-tool-dropdown-empty">No toolsets found</div>';
+          }
+
+          menu.classList.add('active');
+        }
+
+        function hideConvToolsetDropdown() {
+          var menu = document.getElementById('conv-toolset-dropdown');
+          if (menu) menu.classList.remove('active');
+        }
+
+        function addConvToolsetById(toolsetId) {
+          var toolset = toolsetsCache.find(function(ts) { return ts.id === toolsetId; });
+          if (!toolset) return;
+
+          var tools = JSON.parse(toolset.tools);
+
+          // Add common tools from toolset (check the checkboxes)
+          var checkboxes = document.querySelectorAll('#conv-tools-checkboxes input[type="checkbox"]');
+          checkboxes.forEach(function(cb) {
+            if (tools.indexOf(cb.value) !== -1) {
+              cb.checked = true;
+            }
+          });
+
+          // Add custom tools from toolset (if not already present)
+          tools.forEach(function(tool) {
+            if (convCommonToolsList.indexOf(tool) === -1 && convCustomTools.indexOf(tool) === -1) {
+              convCustomTools.push(tool);
+            }
+          });
+
+          renderConvCustomTools();
+        }
+
+        var convToolsetClickListenerAdded = false;
+        function initConvToolsetInput() {
+          var input = document.getElementById('conv-toolset-input');
+          if (!input || input.dataset.initialized) return;
+          input.dataset.initialized = 'true';
+
+          input.addEventListener('focus', function() {
+            showConvToolsetDropdown();
+          });
+
+          input.addEventListener('input', function() {
+            showConvToolsetDropdown();
+          });
+
+          if (!convToolsetClickListenerAdded) {
+            convToolsetClickListenerAdded = true;
+            document.addEventListener('click', function(e) {
+              var currentInput = document.getElementById('conv-toolset-input');
+              var menu = document.getElementById('conv-toolset-dropdown');
+              if (menu && currentInput && !currentInput.contains(e.target) && !menu.contains(e.target)) {
+                hideConvToolsetDropdown();
+              }
+            });
           }
         }
 
@@ -4187,6 +4382,7 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
 
         fetchConversation();
         fetchCustomTools();
+        fetchToolsets();
 
         var pollingPaused = false;
         var pollingPausedByFocus = false;
@@ -4195,7 +4391,7 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
         }, 3000);
 
         // Pause polling when user is focused on the input to prevent jitter
-        var pausePollingIds = ['follow-up-input', 'conv-new-tool', 'conv-new-dir'];
+        var pausePollingIds = ['follow-up-input', 'conv-new-tool', 'conv-new-dir', 'conv-toolset-input'];
         document.addEventListener('focusin', function(e) {
           if (pausePollingIds.indexOf(e.target.id) !== -1) {
             pollingPausedByFocus = true;

@@ -3619,6 +3619,12 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
               newToolInput.value = savedNewToolValue;
             }
 
+            // Re-initialize tool input event listeners after re-render
+            // (the DOM was recreated so event listeners were lost)
+            if (optionsPanelOpen) {
+              initConvToolInput();
+            }
+
             // Restore scroll position
             var newMessagesEl = document.getElementById('messages');
             if (newMessagesEl) {
@@ -3978,6 +3984,7 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
           });
         }
 
+        var convToolClickListenerAdded = false;
         function initConvToolInput() {
           var input = document.getElementById('conv-new-tool');
           if (!input || input.dataset.initialized) return;
@@ -3998,12 +4005,17 @@ const ConversationDetailPage: FC<{ conversationId: string }> = ({ conversationId
             }
           });
 
-          document.addEventListener('click', function(e) {
-            var menu = document.getElementById('conv-new-tool-dropdown');
-            if (menu && !input.contains(e.target) && !menu.contains(e.target)) {
-              hideCustomToolDropdown('conv-new-tool');
-            }
-          });
+          // Only add the document click listener once (it looks up the input dynamically)
+          if (!convToolClickListenerAdded) {
+            convToolClickListenerAdded = true;
+            document.addEventListener('click', function(e) {
+              var currentInput = document.getElementById('conv-new-tool');
+              var menu = document.getElementById('conv-new-tool-dropdown');
+              if (menu && currentInput && !currentInput.contains(e.target) && !menu.contains(e.target)) {
+                hideCustomToolDropdown('conv-new-tool');
+              }
+            });
+          }
         }
 
         function addConvToolFromInput() {

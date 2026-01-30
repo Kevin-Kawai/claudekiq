@@ -515,15 +515,26 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         }
 
         var currentJobsPage = 1;
+        var currentJobsStatus = '';
 
         function goToJobsPage(page) {
           currentJobsPage = page;
           fetchJobs();
         }
 
+        function onJobStatusFilterChange() {
+          currentJobsStatus = document.getElementById('job-status-filter').value;
+          currentJobsPage = 1;
+          fetchJobs();
+        }
+
         async function fetchJobs() {
           try {
-            const res = await fetch('/api/jobs?page=' + currentJobsPage);
+            var url = '/api/jobs?page=' + currentJobsPage;
+            if (currentJobsStatus) {
+              url += '&status=' + currentJobsStatus;
+            }
+            const res = await fetch(url);
             const data = await res.json();
             const jobs = data.jobs;
             const tbody = document.getElementById('jobs-tbody');
@@ -2223,7 +2234,15 @@ const JobList: FC = () => (
         <h2>Recent Jobs</h2>
         <span class="refresh-info">Auto-refreshes every second</span>
       </div>
-      <div class="job-buttons">
+      <div class="job-buttons" style="display:flex;align-items:center;gap:12px;">
+        <select id="job-status-filter" onchange="onJobStatusFilterChange()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+          <option value="">All statuses</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="pending">Pending</option>
+          <option value="processing">Processing</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+        </select>
         <button class="add-job-btn email" onclick="addJob('SendEmailJob')">+ Email</button>
         <button class="add-job-btn email" onclick="addJob('SendWelcomeEmailJob')">+ Welcome</button>
         <button class="add-job-btn report" onclick="addJob('GenerateReportJob')">+ Report</button>

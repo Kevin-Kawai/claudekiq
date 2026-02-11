@@ -80,8 +80,8 @@ async function registerSlashCommands() {
       .addStringOption((option) =>
         option
           .setName("prompt")
-          .setDescription("The initial prompt for Claude")
-          .setRequired(true)
+          .setDescription("The initial prompt for Claude (optional if template has initialMessage)")
+          .setRequired(false)
       )
       .addStringOption((option) =>
         option
@@ -155,7 +155,7 @@ async function handleAutocomplete(interaction: AutocompleteInteraction) {
  * Handle the /claude slash command
  */
 async function handleClaudeCommand(interaction: ChatInputCommandInteraction) {
-  const prompt = interaction.options.getString("prompt", true);
+  let prompt = interaction.options.getString("prompt");
   const workspaceName = interaction.options.getString("workspace");
   const templateName = interaction.options.getString("template");
 
@@ -168,7 +168,7 @@ async function handleClaudeCommand(interaction: ChatInputCommandInteraction) {
     let cwd: string | undefined;
     let allowedTools: string[] | undefined;
     let additionalDirectories: string[] | undefined;
-    let title = `Discord: ${interaction.user.username} - ${prompt.slice(0, 50)}${prompt.length > 50 ? "..." : ""}`;
+    let title: string | undefined;
 
     // Look up workspace by name
     if (workspaceName) {
@@ -219,12 +219,30 @@ async function handleClaudeCommand(interaction: ChatInputCommandInteraction) {
         if (template.additionalDirectories) {
           additionalDirectories = JSON.parse(template.additionalDirectories);
         }
+
+        // Use template's initialMessage if no prompt provided
+        if (!prompt && template.initialMessage) {
+          prompt = template.initialMessage;
+        }
       } else {
         await interaction.editReply({
           content: `Template "${templateName}" not found. Use autocomplete to see available templates.`,
         });
         return;
       }
+    }
+
+    // Ensure we have a prompt (either from command or template)
+    if (!prompt) {
+      await interaction.editReply({
+        content: `Please provide a prompt, or select a template that has an initial message configured.`,
+      });
+      return;
+    }
+
+    // Set default title if not set by template
+    if (!title) {
+      title = `Discord: ${interaction.user.username} - ${prompt.slice(0, 50)}${prompt.length > 50 ? "..." : ""}`;
     }
 
     // Build query options

@@ -29,6 +29,8 @@ import {
   deleteTemplate,
   archiveConversation,
   unarchiveConversation,
+  getSettingsWithDefaults,
+  setSetting,
 } from "./queue";
 import {
   getRegisteredJobs,
@@ -181,6 +183,17 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         .btn-danger { background: #ef4444; color: white; }
         .btn-danger:hover { background: #dc2626; }
         .btn-small { padding: 4px 8px; font-size: 12px; }
+        .settings-section { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .settings-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+        .settings-list { padding: 0; }
+        .setting-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-bottom: 1px solid #f3f4f6; }
+        .setting-item:last-child { border-bottom: none; }
+        .setting-info { flex: 1; }
+        .setting-name { font-weight: 500; margin-bottom: 4px; }
+        .setting-description { font-size: 13px; color: #6b7280; }
+        .setting-control { display: flex; align-items: center; gap: 8px; }
+        .setting-control input[type="number"] { width: 80px; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; }
+        .setting-control .unit { color: #6b7280; font-size: 13px; }
         .toolsets-section { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .toolsets-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
         .toolsets-list { padding: 0; }
@@ -763,6 +776,55 @@ const Layout: FC<{ children: any }> = ({ children }) => (
           } catch (e) {
             console.error('Failed to schedule job:', e);
             alert('Failed to schedule job');
+          }
+        }
+
+        // ============ Settings ============
+        async function fetchSettings() {
+          try {
+            var res = await fetch('/api/settings');
+            var settings = await res.json();
+            var container = document.getElementById('settings-list');
+
+            container.innerHTML = settings.map(function(setting) {
+              if (setting.key === 'jobTimeoutMs') {
+                var minutes = Math.round(setting.value / 60000);
+                var defaultMinutes = Math.round(setting.default / 60000);
+                return '<div class="setting-item">' +
+                  '<div class="setting-info">' +
+                    '<div class="setting-name">Job Timeout</div>' +
+                    '<div class="setting-description">Maximum time a job can run before being aborted (default: ' + defaultMinutes + ' min)</div>' +
+                  '</div>' +
+                  '<div class="setting-control">' +
+                    '<input type="number" id="setting-timeout-minutes" value="' + minutes + '" min="1" max="120" onchange="updateJobTimeout(this.value)" />' +
+                    '<span class="unit">minutes</span>' +
+                  '</div>' +
+                '</div>';
+              }
+              return '';
+            }).join('');
+          } catch (e) {
+            console.error('Failed to fetch settings:', e);
+          }
+        }
+
+        async function updateJobTimeout(minutes) {
+          try {
+            var res = await fetch('/api/settings/jobTimeoutMs', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ minutes: parseInt(minutes, 10) })
+            });
+            if (!res.ok) {
+              var err = await res.json();
+              alert('Error: ' + (err.error || 'Unknown error'));
+              fetchSettings(); // Reset to server value
+              return;
+            }
+          } catch (e) {
+            console.error('Failed to update setting:', e);
+            alert('Failed to update setting');
+            fetchSettings(); // Reset to server value
           }
         }
 
@@ -2172,6 +2234,7 @@ const Layout: FC<{ children: any }> = ({ children }) => (
         // Initial fetch
         fetchStats();
         fetchJobs();
+        fetchSettings();
         fetchToolsets();
         fetchCustomTools();
         fetchTemplates();
@@ -2293,6 +2356,20 @@ const ConversationsList: FC = () => (
     </div>
     <div id="conversations-list" class="conversations-list">
       <div class="empty-state">Select a workspace to view conversations</div>
+    </div>
+  </div>
+);
+
+const SettingsSection: FC = () => (
+  <div class="settings-section">
+    <div class="settings-header">
+      <div>
+        <h2>Settings</h2>
+        <span class="refresh-info">Worker configuration</span>
+      </div>
+    </div>
+    <div id="settings-list" class="settings-list">
+      <div class="empty-state">Loading...</div>
     </div>
   </div>
 );
@@ -2716,6 +2793,7 @@ const Dashboard: FC = () => (
   <Layout>
     <h1>Queue Dashboard</h1>
     <QueueStats />
+    <SettingsSection />
     <WorkspacesSection />
     <ToolsetsSection />
     <TemplatesSection />
@@ -5225,6 +5303,32 @@ app.delete("/api/templates/:id", async (c) => {
   try {
     const template = await deleteTemplate(id);
     return c.json(template);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
+  }
+});
+
+// ============ Settings API ============
+
+// Get all settings
+app.get("/api/settings", async (c) => {
+  const settings = await getSettingsWithDefaults();
+  return c.json(settings);
+});
+
+// Update job timeout setting
+app.put("/api/settings/jobTimeoutMs", async (c) => {
+  const body = await c.req.json();
+  const minutes = body.minutes;
+
+  if (typeof minutes !== "number" || minutes < 1 || minutes > 120) {
+    return c.json({ error: "Minutes must be a number between 1 and 120" }, 400);
+  }
+
+  try {
+    const timeoutMs = minutes * 60 * 1000;
+    await setSetting("jobTimeoutMs", timeoutMs);
+    return c.json({ success: true, value: timeoutMs });
   } catch (error) {
     return c.json({ error: error instanceof Error ? error.message : "Unknown error" }, 400);
   }

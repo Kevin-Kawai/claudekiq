@@ -1,4 +1,4 @@
-import { dequeue, ack, fail, getStats, processScheduledJobs, prisma } from "./queue";
+import { dequeue, ack, fail, getStats, processScheduledJobs, prisma, getSetting } from "./queue";
 import {
   getJobHandler,
   parseJobPayload,
@@ -90,8 +90,17 @@ export async function runWorker(options: WorkerOptions = {}): Promise<never> {
       continue;
     }
 
+    // Create AbortController for job timeout
+    const abortController = new AbortController();
+    const timeoutMs = await getSetting("jobTimeoutMs");
+    const timeoutId = setTimeout(() => {
+      console.log(`Job ${job.id} [${jobClass}] timed out after ${Math.round(timeoutMs / 60000)} minutes`);
+      abortController.abort();
+    }, timeoutMs);
+
     try {
-      await handler(args, { jobId: job.id });
+      await handler(args, { jobId: job.id, abortController });
+      clearTimeout(timeoutId);
       try {
         await ack(job.id);
         console.log(`Job ${job.id} [${jobClass}] completed`);
@@ -155,7 +164,11 @@ export async function runWorker(options: WorkerOptions = {}): Promise<never> {
         console.error(`Job ${job.id} completed but failed to ack: ${ackErr instanceof Error ? ackErr.message : String(ackErr)}`);
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      clearTimeout(timeoutId);
+      const isAborted = err instanceof Error && err.name === "AbortError";
+      const errorMessage = isAborted
+        ? `Job timed out after ${Math.round(timeoutMs / 60000)} minutes`
+        : err instanceof Error ? err.message : String(err);
       console.error(`Job ${job.id} [${jobClass}] failed: ${errorMessage}`);
       try {
         await fail(job.id, errorMessage);

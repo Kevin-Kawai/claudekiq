@@ -164,3 +164,13 @@ model DiscordThreadMapping {
 
   @@index([conversationId])
 }
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   // JSON string for flexibility
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}

@@ -90,6 +90,11 @@ export const ConversationMessageJob = defineJob<ConversationMessageJobArgs>(
       options.maxTurns = maxTurns;
     }
 
+    // Pass abort controller if provided (for timeout support)
+    if (context.abortController) {
+      options.abortController = context.abortController;
+    }
+
     let sessionIdCaptured = false;
 
     // Run the Claude query

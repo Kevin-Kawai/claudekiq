@@ -47,6 +47,9 @@ import {
   unarchiveConversation,
   archiveConversations,
   archiveOldConversations,
+  getSettingsWithDefaults,
+  getSetting,
+  setSetting,
 } from "./queue";
 import {
   getRegisteredJobs,
@@ -2010,6 +2013,66 @@ server.registerTool(
         isError: true,
       };
     }
+  }
+);
+
+// ============ Settings Tools ============
+
+// Tool: Get all settings
+server.registerTool(
+  "get_settings",
+  {
+    description: "Get all worker settings with their current values and defaults",
+  },
+  async () => {
+    const settings = await getSettingsWithDefaults();
+
+    const formatted = settings.map(s => ({
+      key: s.key,
+      value: s.value,
+      default: s.default,
+      isDefault: s.isDefault,
+      description: s.key === "jobTimeoutMs"
+        ? `Job timeout in milliseconds. Current: ${Math.round((s.value as number) / 60000)} minutes`
+        : undefined,
+    }));
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(formatted, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Tool: Update job timeout
+server.registerTool(
+  "set_job_timeout",
+  {
+    description: "Set the global job timeout. Jobs running longer than this will be aborted.",
+    inputSchema: {
+      minutes: z
+        .number()
+        .min(1)
+        .max(120)
+        .describe("Timeout in minutes (1-120). Default is 15 minutes."),
+    },
+  },
+  async ({ minutes }) => {
+    const timeoutMs = minutes * 60 * 1000;
+    await setSetting("jobTimeoutMs", timeoutMs);
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Job timeout updated to ${minutes} minutes (${timeoutMs}ms).\n\nNote: This will apply to new jobs. Currently running jobs will use their original timeout.`,
+        },
+      ],
+    };
   }
 );
 

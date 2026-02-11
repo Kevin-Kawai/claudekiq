@@ -1437,4 +1437,83 @@ export async function deleteTemplate(id: number): Promise<ConversationTemplate> 
   );
 }
 
+// ============ Settings Functions ============
+
+// Default settings values
+const DEFAULT_SETTINGS = {
+  jobTimeoutMs: 15 * 60 * 1000, // 15 minutes
+};
+
+export type SettingKey = keyof typeof DEFAULT_SETTINGS;
+
+/**
+ * Get a setting value by key
+ */
+export async function getSetting<K extends SettingKey>(key: K): Promise<typeof DEFAULT_SETTINGS[K]> {
+  const setting = await withRetry(
+    () => prisma.setting.findUnique({
+      where: { key },
+    }),
+    { operationName: `getSetting(${key})` }
+  );
+
+  if (!setting) {
+    return DEFAULT_SETTINGS[key];
+  }
+
+  return JSON.parse(setting.value);
+}
+
+/**
+ * Set a setting value
+ */
+export async function setSetting<K extends SettingKey>(key: K, value: typeof DEFAULT_SETTINGS[K]): Promise<void> {
+  await withRetry(
+    () => prisma.setting.upsert({
+      where: { key },
+      update: { value: JSON.stringify(value) },
+      create: { key, value: JSON.stringify(value) },
+    }),
+    { operationName: `setSetting(${key})` }
+  );
+}
+
+/**
+ * Get all settings with their current values
+ */
+export async function getAllSettings(): Promise<Record<SettingKey, unknown>> {
+  const settings = await withRetry(
+    () => prisma.setting.findMany(),
+    { operationName: "getAllSettings" }
+  );
+
+  const result = { ...DEFAULT_SETTINGS };
+  for (const setting of settings) {
+    if (setting.key in DEFAULT_SETTINGS) {
+      (result as Record<string, unknown>)[setting.key] = JSON.parse(setting.value);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Get all settings including metadata
+ */
+export async function getSettingsWithDefaults(): Promise<Array<{ key: SettingKey; value: unknown; default: unknown; isDefault: boolean }>> {
+  const settings = await withRetry(
+    () => prisma.setting.findMany(),
+    { operationName: "getSettingsWithDefaults" }
+  );
+
+  const savedValues = new Map(settings.map(s => [s.key, JSON.parse(s.value)]));
+
+  return (Object.keys(DEFAULT_SETTINGS) as SettingKey[]).map(key => ({
+    key,
+    value: savedValues.has(key) ? savedValues.get(key) : DEFAULT_SETTINGS[key],
+    default: DEFAULT_SETTINGS[key],
+    isDefault: !savedValues.has(key),
+  }));
+}
+
 export { prisma };

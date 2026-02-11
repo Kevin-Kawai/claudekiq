@@ -31,6 +31,7 @@ export interface JobPayload<T = unknown> {
 // Context passed to job handlers
 export interface JobContext {
   jobId: number;
+  abortController?: AbortController;
 }
 
 // Job handler function type
